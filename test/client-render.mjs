@@ -51,10 +51,21 @@ function makeReact() {
 /** Load the bundle in a sandbox and hand back the factories it registers. */
 function loadFactories() {
 	const loaded = new Map();
+	const created = [];
 	const windowStub = { __ModuleLoader__: { load: (entry) => loaded.set(entry.id, entry.factory) } };
 	const sandbox = {
 		window: windowStub,
-		document: { createElement: () => ({ style: {}, appendChild() {}, remove() {}, setAttribute() {} }), head: { appendChild() {} }, documentElement: { appendChild() {} } },
+		document: {
+			createElement: () => {
+				// Kept, so a check can read the stylesheet the plugin injects: some
+				// layout bugs (a squashed flex child) are invisible to a render call.
+				const element = { style: {}, textContent: "", appendChild() {}, remove() {}, setAttribute() {} };
+				created.push(element);
+				return element;
+			},
+			head: { appendChild() {} },
+			documentElement: { appendChild() {} },
+		},
 		fetch: () => Promise.reject(new Error("no server in this test")),
 		setInterval: () => 0,
 		clearInterval: () => {},
@@ -63,7 +74,7 @@ function loadFactories() {
 	windowStub.document = sandbox.document;
 	vm.createContext(sandbox);
 	vm.runInContext(source, sandbox, { filename: "lib/client.js" });
-	return loaded;
+	return { loaded, created };
 }
 
 /** Register every slot the client half offers, with a stub ctx. */
@@ -90,7 +101,7 @@ function mount(factory) {
 
 console.log("dsh-trilogy client-half render test");
 
-const loaded = loadFactories();
+const { loaded, created } = loadFactories();
 
 check("the bundle registers exactly one factory under its package id", () => {
 	assert.deepEqual([...loaded.keys()], ["dsh-trilogy"]);
@@ -135,6 +146,19 @@ check("the settings section renders its heading rather than nothing", () => {
 	const tree = section.Component({});
 	const flat = JSON.stringify(tree);
 	assert.ok(flat.includes("项目记忆"), "the settings section rendered no heading");
+});
+
+check("the workspace list scrolls instead of squashing its rows", () => {
+	// A flex column with a max-height shrinks its children rather than overflowing,
+	// so every workspace label ends up clipped top and bottom by its own box.
+	const css = created.map((element) => element.textContent).join("\n");
+	assert.ok(css.includes(".dsh-pm-item"), "the stylesheet was never injected");
+	const item = /\.dsh-pm-item\{[^}]*\}/.exec(css);
+	assert.ok(item !== null, "no .dsh-pm-item rule");
+	assert.match(item[0], /flex:0 0 auto/, `.dsh-pm-item must not shrink: ${item[0]}`);
+	const list = /\.dsh-pm-list\{[^}]*\}/.exec(css);
+	assert.ok(list !== null, "no .dsh-pm-list rule");
+	assert.match(list[0], /max-height/, "the list is the thing that should overflow");
 });
 
 check("the chip stays invisible until it has a reading, and does not throw", () => {
