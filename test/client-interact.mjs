@@ -195,7 +195,22 @@ function makeHost() {
 				"PROJECT.md": file("PROJECT.md", "# PROJECT\n\n## State\n\nliving\n"),
 				"DECISIONS.md": file("DECISIONS.md", "# DECISIONS\n"),
 				"SESSIONS.md": file("SESSIONS.md", "# SESSIONS\n"),
-				"SESSIONS-archive.md": null,
+				"SESSIONS-archive.md": file(
+					"SESSIONS-archive.md",
+					[
+						"# SESSIONS ARCHIVE",
+						"",
+						"> Session entries moved out of `SESSIONS.md` so the live log stays short.",
+						"> This file is **never injected** — read it only when you need older history.",
+						"",
+						"## 2026-01-02 — 旧会话二",
+						"did b",
+						"",
+						"## 2026-01-01 — 旧会话一",
+						"did a",
+						"",
+					].join("\n"),
+				),
 			},
 			[BETA]: {
 				"PROJECT.md": file("PROJECT.md", "# PROJECT (beta)\n"),
@@ -315,7 +330,7 @@ function mutate(state, method, path, queryRoot) {
 			row.exists = false;
 			row.empty = true;
 		}
-		return reply(200, { cleared: ["PROJECT.md", "DECISIONS.md", "SESSIONS.md"], bootBlockRemoved: true });
+		return reply(200, { cleared: ["PROJECT.md", "DECISIONS.md", "SESSIONS.md", "SESSIONS-archive.md"], bootBlockRemoved: true });
 	}
 	if (method === "POST" && path === "/trilogy/init") {
 		const cwd = String(payload.cwd ?? "");
@@ -530,7 +545,7 @@ await check("clearing posts the root and reports how much went", async () => {
 	assert.ok(posted !== undefined, "no clear request was sent");
 	assert.deepEqual(posted.body, { root: ALPHA });
 	const text = textOf(tree);
-	assert.ok(text.includes("已清除 3 个文件"), `the page did not report the clear: ${text.slice(-200)}`);
+	assert.ok(text.includes("已清除 4 个文件"), `the page did not report the clear: ${text.slice(-200)}`);
 	assert.ok(text.includes("移除了 AGENTS.md"), "the withdrawn boot block was not mentioned");
 	assert.ok(text.includes("已清除"), "the workspace badge did not go back to 已清除");
 });
@@ -595,7 +610,7 @@ await check("export downloads a JSON bundle named after the workspace", async ()
 	const saved = JSON.parse(blob.parts[0]);
 	assert.equal(saved.kind, "dsh-trilogy/memory-bundle");
 	assert.equal(saved.files["PROJECT.md"], "# PROJECT\n\n## State\n\nliving\n");
-	assert.ok(textOf(tree).includes("已导出 3 个文件"), `the page did not confirm the export: ${textOf(tree).slice(-200)}`);
+	assert.ok(textOf(tree).includes("已导出 4 个文件"), `the page did not confirm the export: ${textOf(tree).slice(-200)}`);
 });
 
 await check("importing a bundle POSTs it and re-reads everything", async () => {
@@ -659,6 +674,56 @@ await check("the banner goes away once the host stops reporting it", async () =>
 	await click(button(tree, "重新读取"));
 	tree = await h.settle(h.settings, {});
 	assert.ok(!textOf(tree).includes("PROJECT.md 可能过时"), "the banner outlived the condition");
+});
+
+/* --- the archive and overview tabs are read-only --------------------- */
+
+await check("the archive tab offers one restore button per dated entry, and never for the header", async () => {
+	const h = harness();
+	let { tree } = await h.paint(h.settings, {});
+	await click(button(tree, "SESSIONS-archive.md"));
+	tree = h.repaint(h.settings, {});
+
+	const restores = findAll(tree, (el) => el.type === "button" && textOf(el) === "恢复这条");
+	assert.equal(restores.length, 2, `expected two restorable entries, saw ${restores.length}`);
+	const blocks = findAll(tree, (el) => el.type === "pre").map(textOf);
+	assert.ok(blocks.some((block) => block.startsWith("## 2026-01-02")), "the newest entry was not shown");
+	assert.ok(
+		!blocks.some((block) => block.startsWith("## # SESSIONS ARCHIVE")),
+		"the file header was rendered as if it were a restorable entry",
+	);
+});
+
+await check("the archive tab does not offer an editor, because the host would refuse the save", async () => {
+	const h = harness();
+	let { tree } = await h.paint(h.settings, {});
+	await click(button(tree, "SESSIONS-archive.md"));
+	tree = h.repaint(h.settings, {});
+
+	assert.equal(findAll(tree, (el) => el.type === "button" && textOf(el) === "编辑").length, 0, "an editor was offered for a read-only file");
+	assert.ok(textOf(tree).includes("归档是只读的"), "the tab did not say why there is no editor");
+	assert.ok(button(tree, "重新读取") !== undefined, "re-reading should still be possible");
+	assert.equal(callsTo(h.host, "POST", "/trilogy/save").length, 0, "no save should have been attempted");
+});
+
+await check("the cross-workspace overview is read-only too", async () => {
+	const h = harness();
+	let { tree } = await h.paint(h.settings, {});
+	await click(button(tree, "全部工作区"));
+	tree = await h.settle(h.settings, {});
+	assert.equal(findAll(tree, (el) => el.type === "button" && textOf(el) === "编辑").length, 0, "an editor was offered on the overview");
+	assert.ok(textOf(tree).includes("概览是只读的"), "the overview did not say why there is no editor");
+});
+
+await check("switching back to a live file restores the editor", async () => {
+	const h = harness();
+	let { tree } = await h.paint(h.settings, {});
+	await click(button(tree, "SESSIONS-archive.md"));
+	tree = h.repaint(h.settings, {});
+	assert.equal(findAll(tree, (el) => el.type === "button" && textOf(el) === "编辑").length, 0, "read-only tab still offered an editor");
+	await click(button(tree, "PROJECT.md"));
+	tree = h.repaint(h.settings, {});
+	assert.ok(button(tree, "编辑") !== undefined, "the editor did not come back on a writable file");
 });
 
 /* --- the composer chip ------------------------------------------------ */

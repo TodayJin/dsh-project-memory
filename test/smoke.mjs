@@ -384,14 +384,17 @@ await check("GET /files returns the three files with metadata", async () => {
 
 
 
-await check("POST /clear deletes the three files and withdraws the boot block", async () => {
+await check("POST /clear deletes every memory file — the archive included", async () => {
+	// An archive left behind would let the row read "已清除" while older history
+	// stayed on disk and stayed reachable through memory_search.
+	writeFileSync(join(WEB_PROJECT, "memory", "SESSIONS-archive.md"), "# SESSIONS ARCHIVE\n\n## 2020-01-01 — old\ngone\n");
 	const { body } = await callRoute("/trilogy/clear", { method: "POST", body: { root: WEB_PROJECT } });
-	assert.equal(body.cleared.length, 3, JSON.stringify(body));
+	assert.equal(body.cleared.length, 4, JSON.stringify(body));
 	assert.equal(body.bootBlockRemoved, true);
 	// `exists` drives the row badge: false after a clear is what makes it read "已清除".
 	const { body: listed } = await callRoute("/trilogy/workspaces");
 	assert.equal(wsOf(listed, WEB_PROJECT).exists, false, "a cleared workspace must report exists=false");
-	for (const fileName of ["PROJECT.md", "DECISIONS.md", "SESSIONS.md"]) {
+	for (const fileName of ["PROJECT.md", "DECISIONS.md", "SESSIONS.md", "SESSIONS-archive.md"]) {
 		assert.ok(!existsSync(join(WEB_PROJECT, "memory", fileName)), `${fileName} survived the clear`);
 	}
 	assert.ok(!existsSync(join(WEB_PROJECT, "AGENTS.md")), "AGENTS.md held only our block, so it should be gone");
