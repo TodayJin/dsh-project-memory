@@ -143,20 +143,20 @@ await check("scaffold appends the boot block to AGENTS.md", () => {
 	assert.ok(agents.includes("## Memory"), "boot block heading missing");
 });
 
-await check("PROJECT.md has the five fixed sections, empty ones say `none yet`", () => {
+await check("PROJECT.md has the five fixed sections, empty ones say `暂无`", () => {
 	const text = read(join(memoryDir, "PROJECT.md"));
-	for (const section of ["What this is", "Run and test", "Where things live", "State", "Traps"]) {
+	for (const section of ["这是什么", "怎么跑和怎么测", "东西都在哪", "现状", "坑"]) {
 		assert.ok(text.includes(`## ${section}`), `section ${section} missing`);
 	}
-	assert.equal((text.match(/none yet/g) ?? []).length, 5, "expected five empty sections");
+	assert.equal((text.match(/暂无/g) ?? []).length, 5, "expected five empty sections");
 });
 
 await check("first step injects the three files into the step", () => {
 	assert.equal(firstPass.messages.length, 1, "expected one injected message");
 	const text = JSON.stringify(firstPass.messages[0]);
-	assert.ok(text.includes("PROJECT MEMORY"), "block marker missing");
+	assert.ok(text.includes("项目记忆"), "block marker missing");
 	assert.ok(text.includes("PROJECT.md") && text.includes("DECISIONS.md"), "files not listed");
-	assert.ok(text.includes("PROJECT MEMORY IS EMPTY"), "a brand-new project must be asked to bootstrap");
+	assert.ok(text.includes("项目记忆是空的"), "a brand-new project must be asked to bootstrap");
 });
 
 await check("second step with unchanged files injects nothing new (digest dedup)", async () => {
@@ -167,14 +167,14 @@ await check("second step with unchanged files injects nothing new (digest dedup)
 await check("a changed memory file is re-injected", async () => {
 	writeFileSync(
 		join(memoryDir, "PROJECT.md"),
-		read(join(memoryDir, "PROJECT.md")).replace("none yet", "a real project"),
+		read(join(memoryDir, "PROJECT.md")).replace("暂无", "a real project"),
 		"utf8",
 	);
 	const afterEdit = await preStep(handlers, agent);
 	assert.equal(afterEdit.messages.length, 1, "expected exactly one injected message");
 	const text = JSON.stringify(afterEdit.messages[0]);
 	assert.ok(text.includes("a real project"), "changed content missing");
-	assert.ok(!text.includes("PROJECT MEMORY IS EMPTY"), "bootstrap must stop once real content exists");
+	assert.ok(!text.includes("项目记忆是空的"), "bootstrap must stop once real content exists");
 });
 
 await check("re-running scaffold never overwrites existing memory", async () => {
@@ -194,18 +194,18 @@ await check("bootstrap stops once PROJECT.md is filled through the tool", async 
 
 	const first = await preStep(fresh.handlers, freshAgent);
 	assert.ok(
-		JSON.stringify(first.messages[0]).includes("PROJECT MEMORY IS EMPTY"),
+		JSON.stringify(first.messages[0]).includes("项目记忆是空的"),
 		"a fresh project must be asked to bootstrap",
 	);
 
 	await fresh.tools.get("memory_checkpoint").execute(
 		{
 			project: [
-				{ section: "What this is", text: "a surveyed project" },
-				{ section: "Run and test", text: "node test/smoke.mjs" },
-				{ section: "Where things live", text: "src/" },
+				{ section: "这是什么", text: "a surveyed project" },
+				{ section: "怎么跑和怎么测", text: "node test/smoke.mjs" },
+				{ section: "东西都在哪", text: "src/" },
 				{ section: "State", text: "works" },
-				{ section: "Traps", text: "none yet" },
+				{ section: "坑", text: "暂无" },
 			],
 		},
 		{ agent: freshAgent },
@@ -214,7 +214,7 @@ await check("bootstrap stops once PROJECT.md is filled through the tool", async 
 	const second = await preStep(fresh.handlers, freshAgent);
 	assert.equal(second.messages.length, 1, "filling PROJECT.md must refresh the injected block");
 	assert.ok(
-		!JSON.stringify(second.messages[0]).includes("PROJECT MEMORY IS EMPTY"),
+		!JSON.stringify(second.messages[0]).includes("项目记忆是空的"),
 		"bootstrap must not repeat once the project has been described",
 	);
 });
@@ -242,10 +242,10 @@ await check("checkpoint reports exactly what it wrote", () => {
 
 await check("SESSIONS.md gets a dated entry above the fence, newest at top", () => {
 	const text = read(join(memoryDir, "SESSIONS.md"));
-	assert.ok(/## \d{4}-\d{2}-\d{2}\nDone: wired the plugin/.test(text), `entry malformed:\n${text}`);
-	assert.ok(text.includes("Open: no tests in CI"));
-	assert.ok(text.includes("Next: run the profile"));
-	const entryIndex = text.indexOf("Done: wired the plugin");
+	assert.ok(/## \d{4}-\d{2}-\d{2}\n完成：wired the plugin/.test(text), `entry malformed:\n${text}`);
+	assert.ok(text.includes("未完成：no tests in CI"));
+	assert.ok(text.includes("下一步：run the profile"));
+	const entryIndex = text.indexOf("完成：wired the plugin");
 	const fenceEnd = text.indexOf("```", text.indexOf("```") + 3);
 	assert.ok(entryIndex > fenceEnd, "entry was inserted inside the fenced example");
 });
@@ -253,16 +253,16 @@ await check("SESSIONS.md gets a dated entry above the fence, newest at top", () 
 await check("DECISIONS.md gets the full choice/over/because shape", () => {
 	const text = read(join(memoryDir, "DECISIONS.md"));
 	assert.ok(text.includes("— markdown, not sqlite"), "heading missing");
-	assert.ok(text.includes("Chose: markdown, not sqlite"));
-	assert.ok(text.includes("Over: sqlite"));
-	assert.ok(text.includes("Because: git-diffable"));
+	assert.ok(text.includes("选择：markdown, not sqlite"));
+	assert.ok(text.includes("放弃：sqlite"));
+	assert.ok(text.includes("因为：git-diffable"));
 });
 
 await check("PROJECT.md section is replaced in place, later sections intact", () => {
 	const text = read(join(memoryDir, "PROJECT.md"));
-	assert.ok(text.includes("## State\n\nplugin scaffolded and injecting"), `section not replaced:\n${text}`);
-	assert.ok(text.includes("## Traps"), "later section was damaged");
-	assert.equal((text.match(/## State/g) ?? []).length, 1, "section duplicated");
+	assert.ok(text.includes("## 现状\n\nplugin scaffolded and injecting"), `section not replaced:\n${text}`);
+	assert.ok(text.includes("## 坑"), "later section was damaged");
+	assert.equal((text.match(/## 现状/g) ?? []).length, 1, "section duplicated");
 });
 
 await check("memory_read returns the file that was written", async () => {
@@ -289,7 +289,7 @@ await check("a working turn that recorded nothing is nudged once", async () => {
 	assert.equal(steered.length, 1, "expected exactly one steer");
 	const payload = JSON.stringify(steered[0]);
 	assert.ok(payload.includes("memory_checkpoint"), "nudge must name the tool");
-	assert.ok(payload.includes("would a future session waste time"), "nudge must carry the admission test");
+	assert.ok(payload.includes("未来的会话会不会浪费时间"), "nudge must carry the admission test");
 });
 
 await check("cooldown suppresses a second nudge in the same session", async () => {
@@ -375,7 +375,7 @@ await check("GET /workspaces lists a scaffolded workspace", async () => {
 
 await check("GET /files returns the three files with metadata", async () => {
 	const { body } = await callRoute(`/trilogy/files?root=${encodeURIComponent(WEB_PROJECT)}`);
-	assert.ok(body.files["PROJECT.md"].text.includes("## What this is"));
+	assert.ok(body.files["PROJECT.md"].text.includes("## 这是什么"));
 	assert.ok(body.files["DECISIONS.md"].text.includes("# DECISIONS"));
 	assert.ok(body.files["SESSIONS.md"].text.includes("# SESSIONS"));
 	assert.ok(body.files["PROJECT.md"].bytes > 0, "byte count missing");
@@ -405,10 +405,10 @@ await check("clearing is not permanent: the next session scaffolds empty files a
 	const before = await preStep(web.handlers, fresh);
 	assert.ok(existsSync(join(WEB_PROJECT, "memory", "PROJECT.md")), "files were not recreated");
 	const text = read(join(WEB_PROJECT, "memory", "PROJECT.md"));
-	assert.ok(text.includes("none yet"), "recreated files must be empty templates");
+	assert.ok(text.includes("暂无"), "recreated files must be empty templates");
 	assert.ok(!text.includes("surfaced by the fake model"), "content survived the clear");
 	assert.ok(
-		JSON.stringify(before.messages[0]).includes("PROJECT MEMORY IS EMPTY"),
+		JSON.stringify(before.messages[0]).includes("项目记忆是空的"),
 		"a recreated project must be offered the bootstrap again",
 	);
 });
@@ -462,7 +462,7 @@ await check("the indicator never reports a sync time in the future", async () =>
 await check("POST /save writes one memory file", async () => {
 	const { status } = await callRoute("/trilogy/save", {
 		method: "POST",
-		body: { root: WEB_PROJECT, file: "PROJECT.md", text: "# PROJECT\n\n## What this is\n\nhand edited in the settings page\n" },
+		body: { root: WEB_PROJECT, file: "PROJECT.md", text: "# PROJECT\n\n## 这是什么\n\nhand edited in the settings page\n" },
 	});
 	assert.equal(status, 200);
 	assert.ok(read(join(WEB_PROJECT, "memory", "PROJECT.md")).includes("hand edited"));
@@ -798,7 +798,7 @@ await check("PROJECT.md lagging behind the log past the threshold is reported st
 	mkdirSync(join(stale, "memory"), { recursive: true });
 	const longAgo = new Date(Date.now() - 60 * 86400000);
 	const day = (ago) => new Date(Date.now() - ago * 86400000).toISOString().slice(0, 10);
-	writeFileSync(join(stale, "memory", "PROJECT.md"), "# PROJECT\n\n## State\n\nnone yet\n");
+	writeFileSync(join(stale, "memory", "PROJECT.md"), "# PROJECT\n\n## 现状\n\n暂无\n");
 	writeFileSync(join(stale, "memory", "SESSIONS.md"), `# SESSIONS\n\n## ${day(5)} — 做了一件事\ndone\n`);
 	utimesSync(join(stale, "memory", "PROJECT.md"), longAgo, longAgo);
 
@@ -806,6 +806,34 @@ await check("PROJECT.md lagging behind the log past the threshold is reported st
 	assert.equal(body.staleness.stale, true, JSON.stringify(body.staleness));
 	assert.equal(body.staleness.entriesSince, 1, JSON.stringify(body.staleness));
 	assert.ok(body.staleness.behindDays >= 55, JSON.stringify(body.staleness));
+});
+
+await check("PROJECT.md headings written by an older version are renamed in place", async () => {
+	const legacy = mkdtempSync(join(tmpdir(), "pm-legacy-"));
+	mkdirSync(join(legacy, "memory"), { recursive: true });
+	const english = "# PROJECT\n\n## What this is\n\nthe real thing\n\n## Run and test\n\nnode test\n\n## State\n\nstill going\n\n## Traps\n\nnone yet\n";
+	writeFileSync(join(legacy, "memory", "PROJECT.md"), english);
+
+	await preStep(handlers, fakeAgent(legacy));
+	const after = read(join(legacy, "memory", "PROJECT.md"));
+	for (const heading of ["## 这是什么", "## 怎么跑和怎么测", "## 现状", "## 坑"]) {
+		assert.ok(after.includes(heading), `${heading} missing after migration:\n${after}`);
+	}
+	assert.ok(!/^## (What this is|Run and test|State|Traps)$/m.test(after), "an English heading survived");
+	assert.ok(after.includes("the real thing") && after.includes("still going"), "a body was damaged by the rename");
+	assert.ok(after.includes("## 坑") && after.includes("暂无") === false, "a filled section must keep its body");
+});
+
+await check("the legacy English section names are still accepted when writing", async () => {
+	const legacy = mkdtempSync(join(tmpdir(), "pm-legacy-write-"));
+	const agent = fakeAgent(legacy);
+	await preStep(handlers, agent);
+	// The enum takes both spellings; what lands on disk is always the Chinese one.
+	await tools.get("memory_checkpoint").execute({ project: [{ section: "State", text: "written through the old name" }] }, { agent });
+	const after = read(join(legacy, "memory", "PROJECT.md"));
+	assert.ok(after.includes("## 现状"), `the section was not normalised:\n${after}`);
+	assert.ok(after.includes("written through the old name"), "the body was lost");
+	assert.ok(!after.includes("## State"), "the legacy heading was written out");
 });
 
 /* --- 7. health ----------------------------------------------------- */

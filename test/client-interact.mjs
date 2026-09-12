@@ -563,6 +563,11 @@ await check("clearing posts the root and reports how much went", async () => {
 	const h = harness();
 	let { tree } = await h.paint(h.settings, {});
 	await click(button(tree, "清除记忆文件"));
+	tree = h.repaint(h.settings, {});
+	assert.equal(callsTo(h.host, "POST", "/trilogy/clear").length, 0, "the first click must only arm the button");
+	assert.ok(textOf(tree).includes("确认清除"), `no confirmation was offered: ${textOf(tree).slice(-200)}`);
+	assert.ok(textOf(tree).includes("含归档"), "the warning must say the archive goes too");
+	await click(button(tree, "确认清除"));
 	tree = await h.settle(h.settings, {});
 
 	const posted = lastCall(h.host, "POST", "/trilogy/clear");
@@ -580,7 +585,7 @@ await check("the boot panel reports whether the instruction file carries the blo
 	const h = harness();
 	const { tree } = await h.paint(h.settings, {});
 	const text = textOf(tree);
-	assert.ok(text.includes("项目指令文件"), "the boot panel is missing");
+	assert.ok(text.includes("指令文件"), "the boot panel is missing");
 	assert.ok(text.includes(join(ALPHA, "AGENTS.md")), "the instruction file path is missing");
 	assert.ok(text.includes("已写入"), `the block's presence was not reported: ${text.slice(0, 200)}`);
 });
@@ -686,7 +691,7 @@ await check("the memory editor and the instruction editor are mutually exclusive
 await check("export downloads a JSON bundle named after the workspace", async () => {
 	const h = harness();
 	let { tree } = await h.paint(h.settings, {});
-	await click(button(tree, "导出这组记忆"));
+	await click(button(tree, "导出"));
 	tree = await h.settle(h.settings, {});
 
 	const bundle = lastCall(h.host, "GET", "/trilogy/export");
@@ -770,7 +775,7 @@ await check("the banner goes away once the host stops reporting it", async () =>
 await check("the archive tab offers one restore button per dated entry, and never for the header", async () => {
 	const h = harness();
 	let { tree } = await h.paint(h.settings, {});
-	await click(button(tree, "SESSIONS-archive.md"));
+	await click(button(tree, "归档"));
 	tree = h.repaint(h.settings, {});
 
 	const restores = findAll(tree, (el) => el.type === "button" && textOf(el) === "恢复这条");
@@ -786,11 +791,11 @@ await check("the archive tab offers one restore button per dated entry, and neve
 await check("the archive tab does not offer an editor, because the host would refuse the save", async () => {
 	const h = harness();
 	let { tree } = await h.paint(h.settings, {});
-	await click(button(tree, "SESSIONS-archive.md"));
+	await click(button(tree, "归档"));
 	tree = h.repaint(h.settings, {});
 
 	assert.equal(findAll(tree, (el) => el.type === "button" && textOf(el) === "编辑").length, 0, "an editor was offered for a read-only file");
-	assert.ok(textOf(tree).includes("归档是只读的"), "the tab did not say why there is no editor");
+	assert.ok(textOf(tree).includes("归档只读"), "the tab did not say why there is no editor");
 	assert.ok(button(tree, "重新读取") !== undefined, "re-reading should still be possible");
 	assert.equal(callsTo(h.host, "POST", "/trilogy/save").length, 0, "no save should have been attempted");
 });
@@ -801,18 +806,49 @@ await check("the cross-workspace overview is read-only too", async () => {
 	await click(button(tree, "全部工作区"));
 	tree = await h.settle(h.settings, {});
 	assert.equal(findAll(tree, (el) => el.type === "button" && textOf(el) === "编辑").length, 0, "an editor was offered on the overview");
-	assert.ok(textOf(tree).includes("概览是只读的"), "the overview did not say why there is no editor");
+	assert.ok(textOf(tree).includes("概览只读"), "the overview did not say why there is no editor");
 });
 
 await check("switching back to a live file restores the editor", async () => {
 	const h = harness();
 	let { tree } = await h.paint(h.settings, {});
-	await click(button(tree, "SESSIONS-archive.md"));
+	await click(button(tree, "归档"));
 	tree = h.repaint(h.settings, {});
 	assert.equal(findAll(tree, (el) => el.type === "button" && textOf(el) === "编辑").length, 0, "read-only tab still offered an editor");
-	await click(button(tree, "PROJECT.md"));
+	await click(button(tree, "现状"));
 	tree = h.repaint(h.settings, {});
 	assert.ok(button(tree, "编辑") !== undefined, "the editor did not come back on a writable file");
+});
+
+await check("the detail says which workspace it belongs to", async () => {
+	const h = harness();
+	const { tree } = await h.paint(h.settings, {});
+	// The picker is on the left and the detail on the right, so the selected row can
+	// be far away; the detail repeats the path to stay unambiguous.
+	const paths = findAll(tree, (el) => el.props?.className === "dsh-pm-path").map(textOf);
+	assert.equal(paths.filter((path) => path === ALPHA).length, 2, `expected the selected path twice, got ${JSON.stringify(paths)}`);
+	// And the destructive control is not in the same row as the ordinary ones.
+	const danger = findAll(tree, (el) => el.props?.className === "dsh-pm-danger");
+	assert.equal(danger.length, 1, "expected exactly one danger row");
+	assert.ok(textOf(danger[0]).includes("清除记忆文件"), "the danger row has no clear button");
+	assert.ok(!textOf(danger[0]).includes("导出"), "the danger row must not mix in ordinary actions");
+});
+
+await check("the workspace list and the detail are separate columns", async () => {
+	const h = harness();
+	let { tree } = await h.paint(h.settings, {});
+	const body = findAll(tree, (el) => el.props?.className === "dsh-pm-body")[0];
+	assert.ok(body !== undefined, "no two-column body");
+	const side = findAll(body, (el) => el.props?.className === "dsh-pm-side")[0];
+	const main = findAll(body, (el) => el.props?.className === "dsh-pm-main")[0];
+	assert.ok(side !== undefined && main !== undefined, "the body is missing a column");
+	// Picking a workspace must not rebuild the picker: it is the same subtree, so the
+	// list never jumps and the detail never loses its subject.
+	await click(button(tree, "beta"));
+	tree = await h.settle(h.settings, {});
+	const sideAfter = findAll(tree, (el) => el.props?.className === "dsh-pm-side")[0];
+	assert.ok(sideAfter !== undefined, "the picker disappeared after selecting");
+	assert.ok(textOf(sideAfter).includes("alpha") && textOf(sideAfter).includes("beta"), "the picker stopped listing both workspaces");
 });
 
 /* --- the composer chip ------------------------------------------------ */

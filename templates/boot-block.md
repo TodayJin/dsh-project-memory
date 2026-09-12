@@ -1,16 +1,12 @@
 ## Memory
 
-Continuity for this project lives in `memory/`. `PROJECT.md`, `DECISIONS.md` and
-`SESSIONS.md` are loaded automatically at the start of every session — do not
-re-read or re-summarise them, just use them.
+这个项目的连续性在 `memory/` 里。`PROJECT.md`、`DECISIONS.md`、`SESSIONS.md`
+每个会话开始时自动加载 —— 不要再读一遍，也不用复述，直接用。
 
-- `PROJECT.md` is the current state. Where it disagrees with the code, the code
-  wins, and the file gets fixed in the same pass.
-- `DECISIONS.md` holds settled choices. A settled choice is reopened by asking,
-  not by quietly working around it.
-- `SESSIONS.md` is the log of what happened.
+- `PROJECT.md` 是**现在**的状态。它和代码冲突时以代码为准，并在同一次改动里把它改对。
+- `DECISIONS.md` 是已经定下来的选择。定下来的选择要靠**商量**重开，不能悄悄绕过去。
+- `SESSIONS.md` 是发生过什么的流水。
 
-Record what a future session would otherwise have to rediscover, using the
-`memory_checkpoint` tool. Apply one test to every candidate line: **would a
-future session waste time, or repeat a mistake, without this?** A candidate that
-fails is dropped, not shortened.
+用 `memory_checkpoint` 工具记录「未来的会话否则得重新发现」的东西。每条候选都过一遍这个
+判据：**没有这条，未来的会话会不会浪费时间，或者重犯同一个错？** 不合格的候选是**丢掉，
+不是删短**。

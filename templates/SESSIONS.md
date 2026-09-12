@@ -1,15 +1,14 @@
 # SESSIONS
 
-> What happened, and when. **Append only, newest at top.**
+> 发生了什么，什么时候。**只追加，最新在最上。**
 >
-> Entry shape:
+> 条目形状：
 >
 > ```
 > ## YYYY-MM-DD
-> Done: what is now true, and how it was verified
-> Open: what is unfinished
-> Next: the one concrete next action
+> 完成：现在是真的是什么，以及怎么验证的
+> 未完成：还没做完的
+> 下一步：一个具体的下一步
 > ```
 >
-> `Done` without the verification is a claim, not a record. Where something was
-> not verified, say that instead.
+> 只写「完成」而没有验证，那是主张，不是记录。没验证的就写没验证。

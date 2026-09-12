@@ -1,24 +1,24 @@
 # PROJECT
 
-> What this project is, right now. Edited in place — keep it under one screen.
-> Where this file disagrees with the code, the code wins, and this file gets fixed in the same pass.
+> 这个项目**现在**是什么。就地编辑，控制在一屏内。
+> 这里写的内容和代码冲突时，以代码为准，并在同一次改动里把这个文件改对。
 
-## What this is
+## 这是什么
 
-none yet
+暂无
 
-## Run and test
+## 怎么跑和怎么测
 
-none yet
+暂无
 
-## Where things live
+## 东西都在哪
 
-none yet
+暂无
 
-## State
+## 现状
 
-none yet
+暂无
 
-## Traps
+## 坑
 
-none yet
+暂无

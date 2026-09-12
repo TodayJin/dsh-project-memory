@@ -1,13 +1,13 @@
 # DECISIONS
 
-> Settled choices and why. **Append only, newest at top.**
-> A settled choice is reopened by asking, not by quietly working around it.
+> 已经定下来的选择，以及为什么。**只追加，最新在最上。**
+> 定下来的选择要靠**商量**重开，不能悄悄绕过去。
 >
-> Entry shape:
+> 条目形状：
 >
 > ```
-> ## YYYY-MM-DD — <the choice, one line>
-> Chose: what was decided
-> Over: the alternative that was rejected, and why
-> Because: the constraint that forced it
+> ## YYYY-MM-DD — <选择，一行>
+> 选择：决定了什么
+> 放弃：被否决的替代，以及为什么
+> 因为：逼出这个决定的约束
 > ```
