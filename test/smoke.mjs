@@ -670,6 +670,27 @@ await check("memory_search refuses an empty query", async () => {
 	);
 });
 
+await check("GET /overview summarises every workspace", async () => {
+	const { body } = await callRoute("/trilogy/overview");
+	const row = body.workspaces.find((workspace) => workspace.root === WEB_PROJECT);
+	assert.ok(row !== undefined, JSON.stringify(body.workspaces.map((workspace) => workspace.root)));
+	assert.equal(typeof row.state, "string", "the State section must come through");
+	assert.equal(typeof row.latestSession, "string", "the latest session entry must come through");
+});
+
+await check("POST /restore moves an archived entry back to the live log", async () => {
+	const archived = await capCtx.tools.get("memory_read").execute({ file: "SESSIONS-archive.md" }, { agent: capAgent });
+	const entry = archived.content
+		.split(/^## /m)
+		.filter((part) => part.includes("entry 11"))
+		.map((part) => "## " + part.trim())[0];
+	assert.ok(entry !== undefined, "entry 11 must be in the archive first");
+	const { status } = await callRoute("/trilogy/restore", { method: "POST", body: { root: capRoot, text: entry } });
+	assert.equal(status, 200);
+	assert.ok(read(join(capRoot, "memory", "SESSIONS.md")).includes("entry 11"), "the entry must be back in the live log");
+	assert.ok(!read(join(capRoot, "memory", "SESSIONS-archive.md")).includes("entry 11"), "and gone from the archive");
+});
+
 /* --- 7. health ----------------------------------------------------- */
 
 await check("no warnings were logged during the whole run", () => {
