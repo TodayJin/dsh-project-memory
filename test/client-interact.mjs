@@ -536,27 +536,23 @@ await check("picking another workspace refetches that workspace's files", async 
 	assert.ok(textOf(tree).includes("PROJECT (beta)"), "the newly selected workspace's file was not shown");
 });
 
-await check("saving an edit POSTs real JSON and re-reads the file", async () => {
+await check("the three memory files are view-only: only the instruction file can be edited", async () => {
 	const h = harness();
 	let { tree } = await h.paint(h.settings, {});
 
-	await click(button(tree, "编辑"));
-	tree = h.repaint(h.settings, {});
-	const area = findAll(tree, (el) => el.type === "textarea")[0];
-	assert.ok(area !== undefined, "the editor did not appear");
-	assert.equal(area.props.value, "# PROJECT\n\n## State\n\nliving\n", "the editor must open with the file's current text");
+	for (const label of ["现状", "决策", "日志"]) {
+		await click(button(tree, label));
+		tree = h.repaint(h.settings, {});
+		assert.equal(
+			findAll(tree, (el) => el.type === "button" && textOf(el) === "编辑").length,
+			0,
+			`${label} still offered an editor`,
+		);
+		assert.equal(findAll(tree, (el) => el.type === "textarea").length, 0, `${label} opened an editor`);
+	}
 
-	area.props.onChange({ target: { value: "# PROJECT\n\n## State\n\nrewritten\n" } });
-	tree = h.repaint(h.settings, {});
-	await click(button(tree, "保存"));
-	tree = await h.settle(h.settings, {});
-
-	const posted = lastCall(h.host, "POST", "/trilogy/save");
-	assert.ok(posted !== undefined, "no save request was sent");
-	assert.equal(posted.headers["content-type"], "application/json");
-	assert.deepEqual(posted.body, { root: ALPHA, file: "PROJECT.md", text: "# PROJECT\n\n## State\n\nrewritten\n" });
-	assert.ok(textOf(tree).includes("已保存 PROJECT.md"), "the page did not confirm the save");
-	assert.equal(h.host.files[ALPHA]["PROJECT.md"].text, "# PROJECT\n\n## State\n\nrewritten\n", "the host did not receive the edit");
+	assert.equal(callsTo(h.host, "POST", "/trilogy/save").length, 0, "viewing a file must not write");
+	assert.ok(button(tree, "编辑整份文件") !== undefined, "the instruction file is the one file that stays editable");
 });
 
 await check("clearing posts the root and reports how much went", async () => {
@@ -672,18 +668,23 @@ await check("cancelling the instruction editor writes nothing", async () => {
 	assert.equal(h.host.instruction[ALPHA].text.includes("discard me"), false, "the discarded text reached the host");
 });
 
-await check("the memory editor and the instruction editor are mutually exclusive", async () => {
+await check("an open instruction editor survives a switch of the file tab", async () => {
 	const h = harness();
 	let { tree } = await h.paint(h.settings, {});
-	await click(button(tree, "编辑"));
-	tree = h.repaint(h.settings, {});
-	assert.equal(findAll(tree, (el) => el.type === "textarea").length, 1, "the memory editor did not open");
-
 	await click(button(tree, "编辑整份文件"));
 	tree = h.repaint(h.settings, {});
+	const draft = "# PROJECT\n\n## 现状\n\nunsaved draft\n";
+	findAll(tree, (el) => el.type === "textarea")[0].props.onChange({ target: { value: draft } });
+	tree = h.repaint(h.settings, {});
+
+	// The instruction file is not one of the tabs, so switching tabs is not a
+	// reason to throw away what was typed into it.
+	await click(button(tree, "决策"));
+	tree = h.repaint(h.settings, {});
 	const areas = findAll(tree, (el) => el.type === "textarea");
-	assert.equal(areas.length, 1, `two editors at once: ${areas.length}`);
-	assert.ok(areas[0].props.value.includes("Continuity lives in memory/"), "the instruction editor did not take over");
+	assert.equal(areas.length, 1, `the tab switch closed the editor: ${areas.length}`);
+	assert.equal(areas[0].props.value, draft, "the tab switch dropped the unsaved draft");
+	assert.equal(callsTo(h.host, "POST", "/trilogy/save").length, 0, "switching tabs must not write");
 });
 
 /* --- export / import ------------------------------------------------- */
@@ -770,7 +771,7 @@ await check("the banner goes away once the host stops reporting it", async () =>
 	assert.ok(!textOf(tree).includes("PROJECT.md 可能过时"), "the banner outlived the condition");
 });
 
-/* --- the archive tab is read-only ------------------------------------- */
+/* --- every memory file is read-only ----------------------------------- */
 
 await check("the archive tab offers one restore button per dated entry, and never for the header", async () => {
 	const h = harness();
@@ -788,28 +789,26 @@ await check("the archive tab offers one restore button per dated entry, and neve
 	);
 });
 
-await check("the archive tab does not offer an editor, because the host would refuse the save", async () => {
+await check("no memory file offers an editor, and the archive says how to change one", async () => {
 	const h = harness();
 	let { tree } = await h.paint(h.settings, {});
 	await click(button(tree, "归档"));
 	tree = h.repaint(h.settings, {});
 
 	assert.equal(findAll(tree, (el) => el.type === "button" && textOf(el) === "编辑").length, 0, "an editor was offered for a read-only file");
-	assert.ok(textOf(tree).includes("归档只读"), "the tab did not say why there is no editor");
+	assert.ok(textOf(tree).includes("归档只读"), "the tab did not say how to change an archived entry");
 	assert.ok(button(tree, "重新读取") !== undefined, "re-reading should still be possible");
 	assert.equal(callsTo(h.host, "POST", "/trilogy/save").length, 0, "no save should have been attempted");
 });
 
 
-await check("switching back to a live file restores the editor", async () => {
+await check("re-reading sits in the tab strip, immediately left of 归档", async () => {
 	const h = harness();
-	let { tree } = await h.paint(h.settings, {});
-	await click(button(tree, "归档"));
-	tree = h.repaint(h.settings, {});
-	assert.equal(findAll(tree, (el) => el.type === "button" && textOf(el) === "编辑").length, 0, "read-only tab still offered an editor");
-	await click(button(tree, "现状"));
-	tree = h.repaint(h.settings, {});
-	assert.ok(button(tree, "编辑") !== undefined, "the editor did not come back on a writable file");
+	const { tree } = await h.paint(h.settings, {});
+	const strip = findAll(tree, (el) => el.props?.className === "dsh-pm-tabs")[0];
+	assert.ok(strip !== undefined, "the tab strip is missing");
+	const labels = findAll(strip, (el) => el.type === "button").map(textOf);
+	assert.deepEqual(labels, ["现状", "决策", "日志", "重新读取", "归档"], `unexpected tab strip: ${JSON.stringify(labels)}`);
 });
 
 await check("the detail says which workspace it belongs to", async () => {
