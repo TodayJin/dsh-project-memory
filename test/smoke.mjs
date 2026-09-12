@@ -565,6 +565,49 @@ await check("SESSIONS.md is capped: the oldest entries move to an archive", asyn
 	assert.equal((live.match(/更早的会话条目已归档到/g) ?? []).length, 1, "the pointer must not stack");
 });
 
+await check("a second archiving round leaves the archive newest-first", async () => {
+	// The batch that leaves the live log in a later round is *newer* than the batch
+	// archived before it, so it has to go back on top of the archive body. Appending
+	// it would make the archive read oldest-first from the second round on, while the
+	// archive's own header, the settings tab and the live log all say the opposite.
+	const root = mkdtempSync(join(tmpdir(), "pm-cap2-"));
+	mkdirSync(join(root, ".git"), { recursive: true });
+	const ctx = fakeContext();
+	apply(ctx.ctx, { sessionsMaxEntries: 3 });
+	const agent = fakeAgent(root);
+	await preStep(ctx.handlers, agent);
+
+	const checkpoint = ctx.tools.get("memory_checkpoint");
+	const batch = (label) => Array.from({ length: 6 }, (_, index) => ({ done: `${label} ${index}` }));
+	await checkpoint.execute({ sessions: batch("first") }, { agent });
+	await checkpoint.execute({ sessions: batch("second") }, { agent });
+
+	const archive = read(join(root, "memory", "SESSIONS-archive.md"));
+	assert.equal((archive.match(/# SESSIONS ARCHIVE/g) ?? []).length, 1, "the header must not be duplicated");
+	assert.ok(archive.startsWith("# SESSIONS ARCHIVE"), "the header must stay at the top");
+	const order = archive
+		.split(/^## /m)
+		.slice(1)
+		.map((block) => ((/^完成：(.*)$/m.exec(block) ?? [])[1] ?? "").trim());
+	assert.deepEqual(
+		order,
+		[
+			"second 3",
+			"second 4",
+			"second 5",
+			"first 0",
+			"first 1",
+			"first 2",
+			"first 3",
+			"first 4",
+			"first 5",
+		],
+		`the archive is not newest-first: ${JSON.stringify(order)}`,
+	);
+	const live = read(join(root, "memory", "SESSIONS.md"));
+	assert.ok(live.includes("更早的会话条目已归档到 9 条"), "the pointer must count both rounds");
+});
+
 await check("the archive stays reachable through memory_read", async () => {
 	const archived = await capCtx.tools.get("memory_read").execute({ file: "SESSIONS-archive.md" }, { agent: capAgent });
 	assert.ok(archived.content.includes("entry 11"), "archived detail must remain readable");

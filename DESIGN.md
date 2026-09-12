@@ -177,7 +177,7 @@ Because: 逼出这个选择的约束
 
 | 套件 | 数量 | 覆盖 |
 |---|---|---|
-| `test/smoke.mjs` | 61 | 宿主半边：scaffold、boot block 幂等、五节完整性、注入与去重、压缩后重注入、分类写入、围栏代码块、section 就地替换、nudge 触发/冷却/重置、归档与恢复、搜索、10 条 Web 端点（含导出/导入与陈旧度）、loopback 围栏 |
+| `test/smoke.mjs` | 62 | 宿主半边：scaffold、boot block 幂等、五节完整性、注入与去重、压缩后重注入、分类写入、围栏代码块、section 就地替换、nudge 触发/冷却/重置、归档与恢复（含**跨轮顺序**）、搜索、10 条 Web 端点（含导出/导入与陈旧度）、loopback 围栏 |
 | `test/client-render.mjs` | 7 | 浏览器半边：每个注册的组件都真的被调用一次，并检查注入的样式表 |
 | `test/client-interact.mjs` | 26 | 浏览器半边：点击 → 请求 → 状态 → 重渲染的完整往返 |
 
