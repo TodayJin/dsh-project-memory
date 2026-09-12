@@ -152,7 +152,9 @@ Because: 逼出这个选择的约束
 | `sessionEntriesInjected` | `5` | 注入最近几条 SESSIONS 条目 |
 | `nudgeOnTurnEnd` | `true` | 收尾智能判断兜底 |
 | `nudgeCooldownMs` | `600000` | 兜底提醒冷却 |
-| `nudgeMaxPerSession` | `3` | 每会话兜底提醒上限 |
+| `nudgeMaxPerSession` | `3` | 每会话兜底提醒上限（写入成功即清零） |
+| `sessionsMaxEntries` | `200` | 超过这个条数才把最旧的 SESSIONS 条目搬进归档 |
+| `projectStaleDays` | `14` | `PROJECT.md` 落后其余记忆文件多少天才提示陈旧；`0` 关闭 |
 
 ---
 
@@ -165,7 +167,13 @@ Because: 逼出这个选择的约束
 
 ---
 
-## 7. 参考
+## 7. 测试与验证
 
-- 同类实现参考：[justhalfbit/dsh-plugin-memory](https://github.com/justhalfbit/dsh-plugin-memory)、
-  [Phant0Meow/dsh-meow-memory](https://github.com/Phant0Meow/dsh-meow-memory)
+| 套件 | 数量 | 覆盖 |
+|---|---|---|
+| `test/smoke.mjs` | 56 | 宿主半边：scaffold、boot block 幂等、五节完整性、注入与去重、压缩后重注入、分类写入、围栏代码块、section 就地替换、nudge 触发/冷却/重置、归档与恢复、搜索、11 条 Web 端点（含导出/导入与陈旧度）、loopback 围栏 |
+| `test/client-render.mjs` | 6 | 浏览器半边：每个注册的组件都真的被调用一次 |
+| `test/client-interact.mjs` | 17 | 浏览器半边：点击 → 请求 → 状态 → 重渲染的完整往返 |
+
+三套都必须在提交前通过。浏览器半边的渲染错误会被 slot 错误边界静默吞成空白页，
+所以「能渲染」和「点了有用」必须各有一套测试，缺一不可。

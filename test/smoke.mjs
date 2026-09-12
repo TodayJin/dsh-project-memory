@@ -9,7 +9,7 @@
  */
 
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
@@ -716,6 +716,64 @@ await check("GET /boot reports the boot block, and remove/rewrite round-trips", 
 await check("/boot refuses an unknown action", async () => {
 	const { status } = await callRoute("/trilogy/boot", { method: "POST", body: { root: WEB_PROJECT, action: "nope" } });
 	assert.equal(status, 400);
+});
+
+/* --- 6d. export / import -------------------------------------------- */
+
+await check("GET /export bundles every memory file under the plugin's own kind", async () => {
+	const { status, body } = await callRoute(`/trilogy/export?root=${encodeURIComponent(WEB_PROJECT)}`);
+	assert.equal(status, 200);
+	assert.equal(body.kind, "dsh-trilogy/memory-bundle");
+	assert.equal(body.root, WEB_PROJECT);
+	assert.ok(Object.keys(body.files).includes("PROJECT.md"), JSON.stringify(Object.keys(body.files)));
+	assert.ok(body.files["PROJECT.md"].includes("# PROJECT"), "the bundle must carry the file text itself");
+});
+
+await check("POST /import restores a bundle into a workspace that has none", async () => {
+	const exported = (await callRoute(`/trilogy/export?root=${encodeURIComponent(WEB_PROJECT)}`)).body;
+	const target = mkdtempSync(join(tmpdir(), "pm-import-"));
+	const { status, body } = await callRoute("/trilogy/import", { method: "POST", body: { root: target, bundle: exported } });
+	assert.equal(status, 200, JSON.stringify(body));
+	assert.ok(body.written.includes("PROJECT.md"), JSON.stringify(body));
+	assert.equal(read(join(target, "memory", "PROJECT.md")), exported.files["PROJECT.md"], "the text must land byte-for-byte");
+	// A restored workspace has to be remembered, or the Settings UI could never list it.
+	const row = wsOf((await callRoute("/trilogy/workspaces")).body, target);
+	assert.ok(row !== undefined, "the imported workspace must be registered");
+	assert.equal(row.exists, true);
+});
+
+await check("/import refuses a bundle this plugin did not write", async () => {
+	const target = mkdtempSync(join(tmpdir(), "pm-import-bad-"));
+	const { status, body } = await callRoute("/trilogy/import", {
+		method: "POST",
+		body: { root: target, bundle: { kind: "someone-else", files: { "PROJECT.md": "x" } } },
+	});
+	assert.equal(status, 400);
+	assert.match(body.error, /记忆包/);
+	assert.equal(existsSync(join(target, "memory")), false, "a refused import must not touch the disk");
+});
+
+/* --- 6e. PROJECT.md staleness ---------------------------------------- */
+
+await check("a workspace whose files move together is not reported stale", async () => {
+	const { body } = await callRoute(`/trilogy/files?root=${encodeURIComponent(WEB_PROJECT)}`);
+	assert.ok(body.staleness !== undefined, "the file listing must carry a staleness reading");
+	assert.equal(body.staleness.stale, false, JSON.stringify(body.staleness));
+});
+
+await check("PROJECT.md lagging behind the log past the threshold is reported stale", async () => {
+	const stale = mkdtempSync(join(tmpdir(), "pm-stale-"));
+	mkdirSync(join(stale, "memory"), { recursive: true });
+	const longAgo = new Date(Date.now() - 60 * 86400000);
+	const day = (ago) => new Date(Date.now() - ago * 86400000).toISOString().slice(0, 10);
+	writeFileSync(join(stale, "memory", "PROJECT.md"), "# PROJECT\n\n## State\n\nnone yet\n");
+	writeFileSync(join(stale, "memory", "SESSIONS.md"), `# SESSIONS\n\n## ${day(5)} — 做了一件事\ndone\n`);
+	utimesSync(join(stale, "memory", "PROJECT.md"), longAgo, longAgo);
+
+	const { body } = await callRoute(`/trilogy/files?root=${encodeURIComponent(stale)}`);
+	assert.equal(body.staleness.stale, true, JSON.stringify(body.staleness));
+	assert.equal(body.staleness.entriesSince, 1, JSON.stringify(body.staleness));
+	assert.ok(body.staleness.behindDays >= 55, JSON.stringify(body.staleness));
 });
 
 /* --- 7. health ----------------------------------------------------- */
