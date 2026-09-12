@@ -510,6 +510,11 @@ await check("projectRootStrategy=marker restores the climb to .git", async () =>
 	assert.ok(existsSync(join(repo, "memory", "PROJECT.md")), "marker mode must climb to the repository root");
 });
 
+const compactRoot = mkdtempSync(join(tmpdir(), "pm-compact-"));
+mkdirSync(join(compactRoot, ".git"), { recursive: true });
+const compactCtx = fakeContext();
+apply(compactCtx.ctx, {});
+
 const capRoot = mkdtempSync(join(tmpdir(), "pm-cap-"));
 mkdirSync(join(capRoot, ".git"), { recursive: true });
 const capCtx = fakeContext();
@@ -577,6 +582,29 @@ await check("status is per-workspace: two workspaces do not share it", async () 
 	assert.notEqual(statusA.body.phase, "none", "a has memory");
 	assert.equal(statusB.body.phase, "none", "b has none");
 	assert.notEqual(statusA.body.workspace, statusB.body.workspace);
+});
+
+await check("a block that vanished from the session is re-injected", async () => {
+	// One session object across all three passes, so the digest settles and only
+	// the visibility of the injected block differs between them.
+	const session = { header: { cwd: compactRoot }, surface: { nodes: [1] }, eventAt: () => undefined };
+	const subject = { session, steer() {} };
+
+	const first = await preStep(compactCtx.handlers, subject);
+	assert.equal(first.messages.length, 1, "the first pass must inject");
+
+	// Same content, but nothing in the session carries it: this is what a
+	// compaction leaves behind, and it must not silence the memory.
+	const second = await preStep(compactCtx.handlers, subject);
+	assert.equal(second.messages.length, 1, "a block absent from the session must be re-injected");
+
+	// Same content and the block is still there: stay quiet.
+	session.eventAt = () => ({
+		type: "user/message",
+		data: { source: { kind: "plugin", plugin: "project-memory", form: "project-memory" } },
+	});
+	const third = await preStep(compactCtx.handlers, subject);
+	assert.equal(third.messages.length, 0, "a block still present must not be re-injected");
 });
 
 /* --- 7. health ----------------------------------------------------- */
