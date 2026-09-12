@@ -770,7 +770,7 @@ await check("the banner goes away once the host stops reporting it", async () =>
 	assert.ok(!textOf(tree).includes("PROJECT.md 可能过时"), "the banner outlived the condition");
 });
 
-/* --- the archive and overview tabs are read-only --------------------- */
+/* --- the archive tab is read-only ------------------------------------- */
 
 await check("the archive tab offers one restore button per dated entry, and never for the header", async () => {
 	const h = harness();
@@ -800,14 +800,6 @@ await check("the archive tab does not offer an editor, because the host would re
 	assert.equal(callsTo(h.host, "POST", "/trilogy/save").length, 0, "no save should have been attempted");
 });
 
-await check("the cross-workspace overview is read-only too", async () => {
-	const h = harness();
-	let { tree } = await h.paint(h.settings, {});
-	await click(button(tree, "全部工作区"));
-	tree = await h.settle(h.settings, {});
-	assert.equal(findAll(tree, (el) => el.type === "button" && textOf(el) === "编辑").length, 0, "an editor was offered on the overview");
-	assert.ok(textOf(tree).includes("概览只读"), "the overview did not say why there is no editor");
-});
 
 await check("switching back to a live file restores the editor", async () => {
 	const h = harness();

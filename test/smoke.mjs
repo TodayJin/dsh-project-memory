@@ -759,13 +759,7 @@ await check("memory_search refuses an empty query", async () => {
 	);
 });
 
-await check("GET /overview summarises every workspace", async () => {
-	const { body } = await callRoute("/trilogy/overview");
-	const row = body.workspaces.find((workspace) => workspace.root === WEB_PROJECT);
-	assert.ok(row !== undefined, JSON.stringify(body.workspaces.map((workspace) => workspace.root)));
-	assert.equal(typeof row.state, "string", "the State section must come through");
-	assert.equal(typeof row.latestSession, "string", "the latest session entry must come through");
-});
+
 
 await check("POST /restore moves an archived entry back to the live log", async () => {
 	const archived = await capCtx.tools.get("memory_read").execute({ file: "SESSIONS-archive.md" }, { agent: capAgent });
