@@ -139,15 +139,21 @@ Because: 逼出这个选择的约束
 
 ---
 
-## 5. 配置项（全部可在设置里热改）
+## 5. 配置项
+
+配置写在 profile 的 `cordis.patch.yml` 里（按 id 覆盖），**没有图形化的配置界面**，改完要重启 `dsh web`。
 
 | 键 | 默认 | 含义 |
 |---|---|---|
 | `enabled` | `true` | 总开关 |
 | `memoryDirName` | `memory` | 记忆目录名（相对项目根） |
+| `projectRootStrategy` | `"workspace"` | `workspace` = 工作区即项目；`marker` = 向上找 `projectRootMarkers` |
+| `projectRootMarkers` | `[".git"]` | `projectRootStrategy: "marker"` 时往上找哪些标记 |
 | `autoScaffold` | `true` | 缺文件时自动创建 |
 | `writeBootBlock` | `true` | 往 `AGENTS.md` 追加 Memory 段 |
+| `bootBlockFile` | `"AGENTS.md"` | boot block 写进哪个文件 |
 | `injectOnSessionStart` | `true` | 会话开始自动注入 |
+| `bootstrapWhenEmpty` | `true` | `PROJECT.md` 还空着时，注入「去调研并填上」的指令 |
 | `injectBudgetBytes` | `16000` | 注入总字节预算 |
 | `sessionEntriesInjected` | `5` | 注入最近几条 SESSIONS 条目 |
 | `nudgeOnTurnEnd` | `true` | 收尾智能判断兜底 |
