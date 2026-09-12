@@ -600,6 +600,42 @@ await check("a block that vanished from the session is re-injected", async () =>
 	assert.equal(third.messages.length, 0, "a block still present must not be re-injected");
 });
 
+await check("a boot block written under an older name is upgraded, not duplicated", async () => {
+	const root = mkdtempSync(join(tmpdir(), "pm-upgrade-"));
+	writeFileSync(join(root, "AGENTS.md"), "# House rules\n\n<!-- dsh-project-memory -->\n\n## Memory\n\nstale block\n", "utf8");
+	const c = fakeContext();
+	apply(c.ctx, {});
+	await preStep(c.handlers, fakeAgent(root));
+
+	const text = read(join(root, "AGENTS.md"));
+	assert.ok(text.includes("# House rules"), "existing content must survive");
+	assert.ok(text.includes("<!-- dsh-trilogy -->"), "the current marker must be present");
+	assert.ok(!text.includes("dsh-project-memory"), "the old marker must be gone");
+	assert.ok(!text.includes("stale block"), "the old block body must be gone");
+	assert.equal((text.match(/## Memory/g) ?? []).length, 1, "exactly one Memory section");
+});
+
+await check("recording resets the nudge budget", async () => {
+	const root = mkdtempSync(join(tmpdir(), "pm-nudge-"));
+	const c = fakeContext();
+	apply(c.ctx, { nudgeCooldownMs: 0, nudgeMaxPerSession: 1 });
+	const subject = fakeAgent(root);
+	const turn = async (record) => {
+		c.handlers.get("session/event")(subject.session, { type: "turn/start" });
+		c.handlers.get("tools/result")({ agent: subject });
+		if (record) await c.tools.get("memory_checkpoint").execute({ sessions: [{ done: "x" }] }, { agent: subject });
+		await c.handlers.get("agent/turn-stopping")({ agent: subject });
+	};
+
+	await turn(false);
+	assert.equal(subject.steered.length, 1, "the first working turn should be nudged");
+	await turn(false);
+	assert.equal(subject.steered.length, 1, "the budget is 1, so the second must be silent");
+	await turn(true);
+	await turn(false);
+	assert.equal(subject.steered.length, 2, "recording must give the budget back");
+});
+
 /* --- 7. health ----------------------------------------------------- */
 
 await check("no warnings were logged during the whole run", () => {
