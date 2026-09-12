@@ -154,7 +154,7 @@ Because: 逼出这个选择的约束
 | `bootBlockFile` | `"AGENTS.md"` | boot block 写进哪个文件 |
 | `injectOnSessionStart` | `true` | 会话开始自动注入 |
 | `bootstrapWhenEmpty` | `true` | `PROJECT.md` 还空着时，注入「去调研并填上」的指令 |
-| `injectBudgetBytes` | `16000` | 注入总字节预算 |
+| `injectBudgetBytes` | `64000` | 注入总字节预算（天花板，不是配额；见 §4.2） |
 | `sessionEntriesInjected` | `5` | 注入最近几条 SESSIONS 条目 |
 | `nudgeOnTurnEnd` | `true` | 收尾智能判断兜底 |
 | `nudgeCooldownMs` | `600000` | 兜底提醒冷却 |

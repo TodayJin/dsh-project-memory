@@ -685,6 +685,25 @@ await check("an over-budget injection says what it left out", async () => {
 	assert.ok(text.includes("memory_search"), "the note must say how to get it back");
 });
 
+await check("the shipped budget fits a real-sized memory without an omission note", async () => {
+	// The default used to be 16000, which could not even hold the three files plus
+	// the default number of entries -- every session in a mature workspace got the
+	// omission footer. This pins the guarantee, not the number.
+	const root = mkdtempSync(join(tmpdir(), "pm-default-budget-"));
+	const c = fakeContext();
+	apply(c.ctx, {}); // no config at all: whatever ships is what runs
+	const subject = fakeAgent(root);
+	await preStep(c.handlers, subject);
+	await c.tools.get("memory_checkpoint").execute({
+		project: [{ section: "现状", text: "填充内容".repeat(2000) }],
+		sessions: Array.from({ length: 5 }, (_, i) => ({ done: "记录一条".repeat(200) + i })),
+	}, { agent: subject });
+	const pass = await preStep(c.handlers, subject);
+	const text = JSON.stringify(pass.messages);
+	assert.ok(text.includes("填充内容"), "the project memory was not injected at all");
+	assert.ok(!text.includes("未注入"), "the shipped budget is too small for a normal memory");
+});
+
 await check("memory_search finds entries the live log no longer carries", async () => {
 	// capCtx capped SESSIONS.md at 5 entries, so "entry 11" lives in the archive.
 	const found = await capCtx.tools.get("memory_search").execute({ query: "entry 11" }, { agent: capAgent });

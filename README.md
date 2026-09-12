@@ -194,7 +194,7 @@ scaffold 出空模板后，只要 `PROJECT.md` 还是空的，就注入一条 bo
 | `bootstrapWhenEmpty` | `true` | `PROJECT.md` 还空着时，注入"去调研并填上"的指令 |
 | `sessionsMaxEntries` | `200` | SESSIONS.md 超过这个条数才把最旧的搬到归档（阈值定得高，避免过早压缩） |
 | `projectRootStrategy` | `"workspace"` | `workspace` = 工作区即项目；`marker` = 向上找 `.git` |
-| `injectBudgetBytes` | `16000` | 注入总字节预算 |
+| `injectBudgetBytes` | `64000` | 注入总字节预算。**是「停止降级的天花板」，不是配额** —— 装得下就立刻返回。实际注入量 = `PROJECT.md` 全文 + `DECISIONS.md` 全文 + 最近 `sessionEntriesInjected` 条日志；**`SESSIONS.md` 全文永远不注入**，所以想让更多日志进上下文要调的是 `sessionEntriesInjected` |
 | `sessionEntriesInjected` | `5` | 注入最近几条 SESSIONS 条目 |
 | `nudgeOnTurnEnd` | `true` | 收尾智能判断兜底 |
 | `nudgeCooldownMs` | `600000` | 兜底提醒冷却（10 分钟） |
