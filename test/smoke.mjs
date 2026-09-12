@@ -685,6 +685,25 @@ await check("an over-budget injection says what it left out", async () => {
 	assert.ok(text.includes("memory_search"), "the note must say how to get it back");
 });
 
+await check("an over-budget log degrades entry by entry, not by dropping the log", async () => {
+	// One byte over budget used to mean the whole log disappeared. Halving first
+	// keeps the newest few, which is what a reader actually needs.
+	const root = mkdtempSync(join(tmpdir(), "pm-cliff-"));
+	const c = fakeContext();
+	// Room for the two files plus a few entries, nowhere near all twelve.
+	apply(c.ctx, { injectBudgetBytes: 4000, sessionEntriesInjected: 12 });
+	const subject = fakeAgent(root);
+	await preStep(c.handlers, subject);
+	await c.tools.get("memory_checkpoint").execute({
+		sessions: Array.from({ length: 12 }, (_, i) => ({ done: `条目${i} ` + "填充".repeat(120) })),
+	}, { agent: subject });
+	const pass = await preStep(c.handlers, subject);
+	const text = JSON.stringify(pass.messages);
+	assert.ok(text.includes("条目0"), "the newest entry must survive an over-budget log");
+	assert.ok(!text.includes("条目11"), "the oldest entry should have been dropped");
+	assert.ok(/本次只注入最近 \d+ 条/.test(text), `expected a partial count, got: ${text.slice(-240)}`);
+});
+
 await check("the shipped default carries well beyond a handful of session entries", async () => {
 	// The count is the knob that decides how much log reaches every session. It used
 	// to be 5, which is a couple of days in a busy workspace.
