@@ -227,6 +227,16 @@ function makeHost() {
 			[ALPHA]: { file: join(ALPHA, "AGENTS.md"), exists: true, fileExists: true, current: true, block: "<!-- dsh-trilogy -->\n\n## Memory\n" },
 			[BETA]: { file: join(BETA, "AGENTS.md"), exists: false, fileExists: false, current: false, block: "<!-- dsh-trilogy -->\n\n## Memory\n" },
 		},
+		instruction: {
+			[ALPHA]: {
+				name: "AGENTS.md",
+				path: join(ALPHA, "AGENTS.md"),
+				exists: true,
+				text: "<!-- dsh-trilogy -->\n\n## Memory\n\nContinuity lives in memory/.\n",
+				bytes: 59,
+			},
+			[BETA]: { name: "AGENTS.md", path: join(BETA, "AGENTS.md"), exists: false, text: null, bytes: 0 },
+		},
 		status: { [ALPHA]: { phase: "idle", at: 0, workspace: ALPHA, lastSyncAt: 1_700_000_000_000, lastSyncFile: "SESSIONS.md", now: 1_700_000_060_000 } },
 		calls: [],
 		downloads: [],
@@ -272,7 +282,12 @@ function route(state, method, parsed) {
 
 	if (method === "GET" && path === "/trilogy/workspaces") return reply(200, { workspaces: state.workspaces });
 	if (method === "GET" && path === "/trilogy/files") {
-		return reply(200, { root, files: entry(state.files, {}) ?? {}, staleness: entry(state.staleness, null) });
+		return reply(200, {
+			root,
+			files: entry(state.files, {}) ?? {},
+			staleness: entry(state.staleness, null),
+			instruction: entry(state.instruction, null),
+		});
 	}
 	if (method === "GET" && path === "/trilogy/boot") {
 		const boot = entry(state.boot, null);
@@ -315,11 +330,20 @@ function mutate(state, method, path, queryRoot) {
 		return reply(400, { error: "action 必须是 rewrite 或 remove" });
 	}
 	if (method === "POST" && path === "/trilogy/save") {
+		// The instruction file is writable too, but only under the name this
+		// workspace registered — exactly like the host's whitelist.
+		const instr = state.instruction[root];
+		if (instr !== undefined && payload.file === instr.name) {
+			instr.text = payload.text;
+			instr.exists = true;
+			instr.bytes = Buffer.byteLength(String(payload.text), "utf8");
+			return reply(200, { saved: instr.name, kind: "instruction", bytes: instr.bytes });
+		}
 		const target = state.files[root]?.[payload.file];
 		if (target === undefined) return reply(400, { error: "不允许写入 " + String(payload.file) });
 		target.text = payload.text;
 		target.bytes = Buffer.byteLength(String(payload.text), "utf8");
-		return reply(200, { saved: payload.file, bytes: target.bytes });
+		return reply(200, { saved: payload.file, kind: "memory", bytes: target.bytes });
 	}
 	if (method === "POST" && path === "/trilogy/clear") {
 		for (const name of ["PROJECT.md", "DECISIONS.md", "SESSIONS.md", "SESSIONS-archive.md"]) {
@@ -590,6 +614,71 @@ await check("rewriting the Memory block posts the action and restores the badge"
 	assert.deepEqual(posted.body, { root: ALPHA, action: "rewrite" });
 	assert.equal(h.host.boot[ALPHA].exists, true);
 	assert.ok(textOf(tree).includes("已写入"), "the badge did not come back");
+});
+
+/* --- editing the instruction file itself ----------------------------- */
+
+await check("the panel opens the whole instruction file, Memory block included", async () => {
+	const h = harness();
+	let { tree } = await h.paint(h.settings, {});
+	await click(button(tree, "编辑整份文件"));
+	tree = h.repaint(h.settings, {});
+
+	const areas = findAll(tree, (el) => el.type === "textarea");
+	assert.equal(areas.length, 1, `expected one editor, saw ${areas.length}`);
+	assert.ok(areas[0].props.value.includes("Continuity lives in memory/"), `not the file's text: ${areas[0].props.value}`);
+	assert.ok(areas[0].props.value.includes("<!-- dsh-trilogy -->"), "the Memory block must be visible in the editor");
+	// The block-level buttons step aside while the whole file is open.
+	assert.equal(findAll(tree, (el) => el.type === "button" && textOf(el) === "移除 Memory 段").length, 0, "the block buttons should step aside");
+});
+
+await check("saving the instruction file posts the whole text and refreshes the panel", async () => {
+	const h = harness();
+	let { tree } = await h.paint(h.settings, {});
+	await click(button(tree, "编辑整份文件"));
+	tree = h.repaint(h.settings, {});
+	const edited = "## House rules\n\n- be brief\n";
+	findAll(tree, (el) => el.type === "textarea")[0].props.onChange({ target: { value: edited } });
+	tree = h.repaint(h.settings, {});
+	await click(button(tree, "保存"));
+	tree = await h.settle(h.settings, {});
+
+	const posted = lastCall(h.host, "POST", "/trilogy/save");
+	assert.ok(posted !== undefined, "no save was sent");
+	assert.deepEqual(posted.body, { root: ALPHA, file: "AGENTS.md", text: edited });
+	assert.equal(h.host.instruction[ALPHA].text, edited, "the host did not receive the new text");
+	assert.ok(textOf(tree).includes("已保存 AGENTS.md"), `no confirmation shown: ${textOf(tree).slice(-160)}`);
+	assert.equal(findAll(tree, (el) => el.type === "textarea").length, 0, "the editor stayed open after saving");
+	assert.ok(button(tree, "移除 Memory 段") !== undefined, "the block buttons did not come back");
+});
+
+await check("cancelling the instruction editor writes nothing", async () => {
+	const h = harness();
+	let { tree } = await h.paint(h.settings, {});
+	await click(button(tree, "编辑整份文件"));
+	tree = h.repaint(h.settings, {});
+	findAll(tree, (el) => el.type === "textarea")[0].props.onChange({ target: { value: "discard me" } });
+	tree = h.repaint(h.settings, {});
+	await click(button(tree, "取消"));
+	tree = h.repaint(h.settings, {});
+
+	assert.equal(findAll(tree, (el) => el.type === "textarea").length, 0, "the editor stayed open");
+	assert.equal(callsTo(h.host, "POST", "/trilogy/save").length, 0, "cancel must not write");
+	assert.equal(h.host.instruction[ALPHA].text.includes("discard me"), false, "the discarded text reached the host");
+});
+
+await check("the memory editor and the instruction editor are mutually exclusive", async () => {
+	const h = harness();
+	let { tree } = await h.paint(h.settings, {});
+	await click(button(tree, "编辑"));
+	tree = h.repaint(h.settings, {});
+	assert.equal(findAll(tree, (el) => el.type === "textarea").length, 1, "the memory editor did not open");
+
+	await click(button(tree, "编辑整份文件"));
+	tree = h.repaint(h.settings, {});
+	const areas = findAll(tree, (el) => el.type === "textarea");
+	assert.equal(areas.length, 1, `two editors at once: ${areas.length}`);
+	assert.ok(areas[0].props.value.includes("Continuity lives in memory/"), "the instruction editor did not take over");
 });
 
 /* --- export / import ------------------------------------------------- */

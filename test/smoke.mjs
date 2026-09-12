@@ -468,12 +468,41 @@ await check("POST /save writes one memory file", async () => {
 	assert.ok(read(join(WEB_PROJECT, "memory", "PROJECT.md")).includes("hand edited"));
 });
 
-await check("POST /save refuses to write anything but the three files", async () => {
-	const { status } = await callRoute("/trilogy/save", {
-		method: "POST",
-		body: { root: WEB_PROJECT, file: "AGENTS.md", text: "nope" },
-	});
-	assert.equal(status, 400, "only the three memory files may be written through this route");
+await check("POST /save refuses everything except the three memory files and the instruction file", async () => {
+	// The instruction file is writable now, so the interesting question is what is
+	// NOT: an archive, a sibling file, a traversal attempt, and a name this
+	// workspace does not use for its instruction file.
+	for (const name of ["SESSIONS-archive.md", "package.json", "README.md", "../escape.txt", "AGENTS.md.bak"]) {
+		const { status, body } = await callRoute("/trilogy/save", { method: "POST", body: { root: WEB_PROJECT, file: name, text: "nope" } });
+		assert.equal(status, 400, `${name} must be refused, got ${JSON.stringify(body)}`);
+	}
+	assert.ok(!existsSync(join(WEB_PROJECT, "..", "escape.txt")), "a refused write must not escape the workspace");
+});
+
+await check("POST /save writes the instruction file itself, and /files reports it", async () => {
+	// Its own workspace on purpose: writing the instruction file is destructive to
+	// the boot block, and WEB_PROJECT has a round-trip test further down.
+	const instr = mkdtempSync(join(tmpdir(), "pm-instr-"));
+	await callRoute("/trilogy/init", { method: "POST", body: { cwd: instr } });
+	const before = (await callRoute(`/trilogy/files?root=${encodeURIComponent(instr)}`)).body.instruction;
+	assert.equal(before.name, "AGENTS.md");
+	assert.equal(before.exists, true);
+	assert.ok(before.text.includes("<!-- dsh-trilogy -->"), "init should have written the block");
+
+	const written = "## House rules\n\n- keep it short\n";
+	const { status, body } = await callRoute("/trilogy/save", { method: "POST", body: { root: instr, file: "AGENTS.md", text: written } });
+	assert.equal(status, 200, JSON.stringify(body));
+	assert.equal(body.kind, "instruction", "the endpoint must say which kind it wrote");
+	assert.equal(read(join(instr, "AGENTS.md")), written, "the file must be replaced, not appended to");
+
+	const after = (await callRoute(`/trilogy/files?root=${encodeURIComponent(instr)}`)).body.instruction;
+	assert.equal(after.text, written, "the listing must carry the new text");
+	assert.equal(after.bytes, Buffer.byteLength(written, "utf8"));
+
+	// A moved instruction file is still addressable by the name it was registered
+	// under, and that name is the only one the whitelist opens.
+	const renamed = await callRoute("/trilogy/save", { method: "POST", body: { root: instr, file: "CLAUDE.md", text: "x" } });
+	assert.equal(renamed.status, 400, "a name this workspace did not register must stay refused");
 });
 
 
