@@ -1,4 +1,4 @@
-# dsh-project-memory — 设计说明
+# dsh-trilogy — 设计说明
 
 > 一份按项目隔离、纯 Markdown、零依赖的跨会话记忆方案。
 > 核心是三个文件的分工，以及 **由 harness 而不是由模型自觉** 来保证的三件事：

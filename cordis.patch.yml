@@ -2,5 +2,5 @@
 # `dsh.bundle.patch` in package.json points here, so `dsh plugin add` picks the
 # entry up without any manual editing of the profile.
 - insert:
-    - id: project-memory
-      name: dsh-project-memory
+    - id: trilogy
+      name: dsh-trilogy

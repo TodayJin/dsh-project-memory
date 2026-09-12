@@ -88,22 +88,22 @@ function mount(factory) {
 
 /* --- the test --------------------------------------------------------- */
 
-console.log("dsh-project-memory client-half render test");
+console.log("dsh-trilogy client-half render test");
 
 const loaded = loadFactories();
 
 check("the bundle registers exactly one factory under its package id", () => {
-	assert.deepEqual([...loaded.keys()], ["dsh-project-memory"]);
+	assert.deepEqual([...loaded.keys()], ["dsh-trilogy"]);
 });
 
-const factory = loaded.get("dsh-project-memory");
+const factory = loaded.get("dsh-trilogy");
 assert.ok(factory, "factory missing — the bundle did not call __ModuleLoader__.load");
 
 let registrations = [];
 check("the module exports { name, inject, apply }", () => {
 	const { exports } = mount(factory);
 	assert.equal(typeof exports.apply, "function", "apply missing");
-	assert.equal(exports.name, "dsh-project-memory", "name missing");
+	assert.equal(exports.name, "dsh-trilogy", "name missing");
 	assert.ok(Array.isArray(exports.inject), "inject missing");
 });
 

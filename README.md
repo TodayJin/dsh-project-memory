@@ -1,4 +1,4 @@
-# dsh-project-memory
+# dsh-trilogy
 
 **给 DeepSeek Harness 的项目记忆插件** —— 为每个工作区维护三份 Markdown 记忆文件：**自动创建、自动加载、自动记录**。
 
@@ -59,7 +59,7 @@
 
 ```sh
 # 从本地目录安装（link，改代码即时生效，适合开发）
-dsh plugin --profile web add link:D:/path/to/dsh-project-memory
+dsh plugin --profile web add link:D:/path/to/dsh-trilogy
 
 # 重启 dsh web 生效
 ```
@@ -67,7 +67,7 @@ dsh plugin --profile web add link:D:/path/to/dsh-project-memory
 卸载：
 
 ```sh
-dsh plugin --profile web remove dsh-project-memory
+dsh plugin --profile web remove dsh-trilogy
 ```
 
 `dsh plugin add` 会自动写入 profile 依赖并追加到 `dsh.profile.bundles`，**无需手工编辑**。
@@ -118,7 +118,7 @@ scaffold 出空模板后，只要 `PROJECT.md` 还是空的，就注入一条 bo
 悬停显示完整信息：状态、最近同步、工作区路径、写入的文件。
 
 数据来自宿主时钟 —— 响应里带一个 `now` 字段，所以浏览器不需要相信自己的时钟。
-客户端每 4 秒轮询一次 `GET /project-memory/status`；宿主不可达时保留最后一次读数。
+客户端每 4 秒轮询一次 `GET /trilogy/status`；宿主不可达时保留最后一次读数。
 
 > 图标用 UI primitives 的 `IconLoadingOutline16` / `IconRefreshOutline14` /
 > `IconCheckOutline14` / `IconDatabaseOutline16`；若该模块缺少对应图标，
@@ -135,12 +135,11 @@ scaffold 出空模板后，只要 `PROJECT.md` 还是空的，就注入一条 bo
 | **清除** | 删掉该工作区的三个文件，并撤回 `AGENTS.md` 里的 boot block。**注册表条目保留** —— 下次在该工作区开新会话会重新创建空文件 |
 | **编辑并保存** | 三个文件都能直接在界面里改，白名单只允许写这三个文件 |
 | **搜索筛选** | 工作区多时按路径过滤 |
-| **从列表移除** | 只从列表移除，磁盘文件一个不删 |
 
 工作区列表在**打开设置页时**从活会话回填，所以历史项目（在新功能之前建的 `memory/`）也会出现。
 
-**写入受限**：清除、移除、初始化、保存都是写操作，而裸 `webServer` 路由本身没有鉴权，因此
-整个 `/project-memory` 前缀被**限制为本机访问**（非 loopback 返回 403）。
+**写入受限**：清除、初始化、保存都是写操作，而裸 `webServer` 路由本身没有鉴权，因此
+整个 `/trilogy` 前缀被**限制为本机访问**（非 loopback 返回 403）。
 
 > 插件**完全不调用模型** —— 没有向量检索、没有 embedding、没有后台蒸馏。
 > `PROJECT.md` 的初次内容由**会话里的模型**自己去读文件、跑测试命令后写入。
@@ -166,7 +165,7 @@ scaffold 出空模板后，只要 `PROJECT.md` 还是空的，就注入一条 bo
 在 profile 的 `cordis.patch.yml` 里按 id 覆盖，例如：
 
 ```yaml
-- id: project-memory
+- id: trilogy
   config:
     injectBudgetBytes: 24000
     nudgeMaxPerSession: 5

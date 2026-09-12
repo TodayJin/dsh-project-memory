@@ -1,5 +1,5 @@
 /**
- * Smoke test for dsh-project-memory.
+ * Smoke test for dsh-trilogy.
  *
  * Drives the plugin through a fake harness context: no dsh process, no profile.
  * It exercises the real public surface (`apply`) and asserts the three
@@ -68,7 +68,7 @@ function fakeContext({ web = false, llm = null } = {}) {
 	};
 	const webServer = {
 		register(route) {
-			if (route.kind !== "prefix" || route.path !== "/project-memory") {
+			if (route.kind !== "prefix" || route.path !== "/trilogy") {
 				throw new Error(`unexpected route registration: ${JSON.stringify({ kind: route.kind, path: route.path })}`);
 			}
 			apiHandler = route.handler;
@@ -111,7 +111,7 @@ function fakeAgent(cwd) {
 const preStep = (handlers, agent) =>
 	handlers.get("agent/pre-step")({ agent }, async () => ({ kind: "enter", messages: [] }));
 
-console.log(`dsh-project-memory smoke test — plugin id "${name}", inject ${JSON.stringify(inject)}`);
+console.log(`dsh-trilogy smoke test — plugin id "${name}", inject ${JSON.stringify(inject)}`);
 console.log(`config declared: ${Config !== undefined}`);
 
 // Keep registry writes out of the real DSH home.
@@ -139,7 +139,7 @@ await check("scaffold creates all three memory files", () => {
 
 await check("scaffold appends the boot block to AGENTS.md", () => {
 	const agents = read(join(projectRoot, "AGENTS.md"));
-	assert.ok(agents.includes("<!-- dsh-project-memory -->"), "marker missing");
+	assert.ok(agents.includes("<!-- dsh-trilogy -->"), "marker missing");
 	assert.ok(agents.includes("## Memory"), "boot block heading missing");
 });
 
@@ -181,7 +181,7 @@ await check("re-running scaffold never overwrites existing memory", async () => 
 	await preStep(handlers, agent);
 	assert.ok(read(join(memoryDir, "PROJECT.md")).includes("a real project"), "existing content was clobbered");
 	const agents = read(join(projectRoot, "AGENTS.md"));
-	assert.equal((agents.match(/<!-- dsh-project-memory -->/g) ?? []).length, 1, "boot block duplicated");
+	assert.equal((agents.match(/<!-- dsh-trilogy -->/g) ?? []).length, 1, "boot block duplicated");
 });
 
 await check("bootstrap stops once PROJECT.md is filled through the tool", async () => {
@@ -330,7 +330,7 @@ apply(web.ctx, {});
 const webAgent = fakeAgent(WEB_PROJECT);
 
 await check("a web profile registers the Settings UI prefix route", () => {
-	assert.ok(web.apiHandler !== null, "no prefix route registered at /project-memory");
+	assert.ok(web.apiHandler !== null, "no prefix route registered at /trilogy");
 });
 
 /**
@@ -365,7 +365,7 @@ const wsOf = (body, root) => body.workspaces.find((w) => w.root === root);
 await preStep(web.handlers, webAgent);
 
 await check("GET /workspaces lists a scaffolded workspace", async () => {
-	const { body } = await callRoute("/project-memory/workspaces");
+	const { body } = await callRoute("/trilogy/workspaces");
 	const row = wsOf(body, WEB_PROJECT);
 	assert.ok(row !== undefined, JSON.stringify(body.workspaces.map((w) => w.root)));
 	assert.equal(row.exists, true);
@@ -374,7 +374,7 @@ await check("GET /workspaces lists a scaffolded workspace", async () => {
 });
 
 await check("GET /files returns the three files with metadata", async () => {
-	const { body } = await callRoute(`/project-memory/files?root=${encodeURIComponent(WEB_PROJECT)}`);
+	const { body } = await callRoute(`/trilogy/files?root=${encodeURIComponent(WEB_PROJECT)}`);
 	assert.ok(body.files["PROJECT.md"].text.includes("## What this is"));
 	assert.ok(body.files["DECISIONS.md"].text.includes("# DECISIONS"));
 	assert.ok(body.files["SESSIONS.md"].text.includes("# SESSIONS"));
@@ -385,11 +385,11 @@ await check("GET /files returns the three files with metadata", async () => {
 
 
 await check("POST /clear deletes the three files and withdraws the boot block", async () => {
-	const { body } = await callRoute("/project-memory/clear", { method: "POST", body: { root: WEB_PROJECT } });
+	const { body } = await callRoute("/trilogy/clear", { method: "POST", body: { root: WEB_PROJECT } });
 	assert.equal(body.cleared.length, 3, JSON.stringify(body));
 	assert.equal(body.bootBlockRemoved, true);
 	// `exists` drives the row badge: false after a clear is what makes it read "已清除".
-	const { body: listed } = await callRoute("/project-memory/workspaces");
+	const { body: listed } = await callRoute("/trilogy/workspaces");
 	assert.equal(wsOf(listed, WEB_PROJECT).exists, false, "a cleared workspace must report exists=false");
 	for (const fileName of ["PROJECT.md", "DECISIONS.md", "SESSIONS.md"]) {
 		assert.ok(!existsSync(join(WEB_PROJECT, "memory", fileName)), `${fileName} survived the clear`);
@@ -411,19 +411,19 @@ await check("clearing is not permanent: the next session scaffolds empty files a
 });
 
 await check("POST /clear rejects a workspace that was never recorded", async () => {
-	const { status, body } = await callRoute("/project-memory/clear", { method: "POST", body: { root: "D:/definitely-not-registered" } });
+	const { status, body } = await callRoute("/trilogy/clear", { method: "POST", body: { root: "D:/definitely-not-registered" } });
 	assert.equal(status, 400);
 	assert.ok(String(body.error).includes("未记录"), JSON.stringify(body));
 });
 
 await check("the API answers 404 for an unknown endpoint", async () => {
-	const { status, body } = await callRoute("/project-memory/nope");
+	const { status, body } = await callRoute("/trilogy/nope");
 	assert.equal(status, 404);
 	assert.ok(String(body.error).includes("未知端点"), JSON.stringify(body));
 });
 
 await check("the mutating API is fenced to this machine", async () => {
-	const { status, body } = await callRoute("/project-memory/clear", {
+	const { status, body } = await callRoute("/trilogy/clear", {
 		method: "POST",
 		body: { root: WEB_PROJECT },
 		remoteAddress: "192.168.1.50",
@@ -436,13 +436,13 @@ await check("the mutating API is fenced to this machine", async () => {
 
 await check("a checkpoint that records nothing leaves the indicator idle", async () => {
 	await web.tools.get("memory_checkpoint").execute({}, { agent: webAgent });
-	const { body } = await callRoute(`/project-memory/status?cwd=${encodeURIComponent(WEB_PROJECT)}`);
+	const { body } = await callRoute(`/trilogy/status?cwd=${encodeURIComponent(WEB_PROJECT)}`);
 	assert.equal(body.phase, "idle", JSON.stringify(body));
 });
 
 await check("a recording checkpoint reports done with a sync time", async () => {
 	await web.tools.get("memory_checkpoint").execute({ sessions: [{ done: "status probe" }] }, { agent: webAgent });
-	const { body } = await callRoute(`/project-memory/status?cwd=${encodeURIComponent(WEB_PROJECT)}`);
+	const { body } = await callRoute(`/trilogy/status?cwd=${encodeURIComponent(WEB_PROJECT)}`);
 	assert.equal(body.phase, "done", JSON.stringify(body));
 	assert.ok(body.lastSyncAt > 0, "lastSyncAt missing");
 	assert.ok(String(body.lastSyncFile).includes("SESSIONS.md"), JSON.stringify(body));
@@ -450,14 +450,14 @@ await check("a recording checkpoint reports done with a sync time", async () => 
 });
 
 await check("the indicator never reports a sync time in the future", async () => {
-	const { body } = await callRoute(`/project-memory/status?cwd=${encodeURIComponent(WEB_PROJECT)}`);
+	const { body } = await callRoute(`/trilogy/status?cwd=${encodeURIComponent(WEB_PROJECT)}`);
 	assert.ok(body.lastSyncAt <= body.now, `${body.lastSyncAt} > ${body.now}`);
 });
 
 /* --- 6. manual editing and forgetting -------------------------------- */
 
 await check("POST /save writes one memory file", async () => {
-	const { status } = await callRoute("/project-memory/save", {
+	const { status } = await callRoute("/trilogy/save", {
 		method: "POST",
 		body: { root: WEB_PROJECT, file: "PROJECT.md", text: "# PROJECT\n\n## What this is\n\nhand edited in the settings page\n" },
 	});
@@ -466,20 +466,13 @@ await check("POST /save writes one memory file", async () => {
 });
 
 await check("POST /save refuses to write anything but the three files", async () => {
-	const { status } = await callRoute("/project-memory/save", {
+	const { status } = await callRoute("/trilogy/save", {
 		method: "POST",
 		body: { root: WEB_PROJECT, file: "AGENTS.md", text: "nope" },
 	});
 	assert.equal(status, 400, "only the three memory files may be written through this route");
 });
 
-await check("POST /forget drops the row but never the files", async () => {
-	const { status } = await callRoute("/project-memory/forget", { method: "POST", body: { root: WEB_PROJECT } });
-	assert.equal(status, 200);
-	const { body } = await callRoute("/project-memory/workspaces");
-	assert.equal(wsOf(body, WEB_PROJECT), undefined, "the row should be gone");
-	assert.ok(existsSync(join(WEB_PROJECT, "memory", "PROJECT.md")), "forget must not delete anything on disk");
-});
 
 await check("a workspace nested inside a repository is still its own project", async () => {
 	// The whole point of the default: no `.git` hunting, the workspace wins.
@@ -556,7 +549,7 @@ await check("the archive never leaks into the injected block", async () => {
 
 await check("a workspace with no memory reports 无记忆, not 已同步", async () => {
 	const bare = mkdtempSync(join(tmpdir(), "pm-bare-"));
-	const { body } = await callRoute(`/project-memory/status?cwd=${encodeURIComponent(bare)}`);
+	const { body } = await callRoute(`/trilogy/status?cwd=${encodeURIComponent(bare)}`);
 	assert.equal(body.phase, "none", JSON.stringify(body));
 	assert.equal(body.lastSyncAt, null);
 	assert.equal(body.workspace, bare, "the workspace must still be resolved");
@@ -564,11 +557,11 @@ await check("a workspace with no memory reports 无记忆, not 已同步", async
 
 await check("POST /init creates the three files for a memoryless workspace", async () => {
 	const bare = mkdtempSync(join(tmpdir(), "pm-init-"));
-	const { status, body } = await callRoute("/project-memory/init", { method: "POST", body: { cwd: bare } });
+	const { status, body } = await callRoute("/trilogy/init", { method: "POST", body: { cwd: bare } });
 	assert.equal(status, 200, JSON.stringify(body));
 	assert.equal(body.created.length, 3, JSON.stringify(body));
 	assert.ok(existsSync(join(bare, "memory", "PROJECT.md")));
-	const after = await callRoute(`/project-memory/status?cwd=${encodeURIComponent(bare)}`);
+	const after = await callRoute(`/trilogy/status?cwd=${encodeURIComponent(bare)}`);
 	assert.notEqual(after.body.phase, "none", "after init the workspace has memory");
 	assert.ok(after.body.lastSyncAt > 0, "and a sync time from disk");
 });
@@ -576,9 +569,9 @@ await check("POST /init creates the three files for a memoryless workspace", asy
 await check("status is per-workspace: two workspaces do not share it", async () => {
 	const a = mkdtempSync(join(tmpdir(), "pm-a-"));
 	const b = mkdtempSync(join(tmpdir(), "pm-b-"));
-	await callRoute("/project-memory/init", { method: "POST", body: { cwd: a } });
-	const statusA = await callRoute(`/project-memory/status?cwd=${encodeURIComponent(a)}`);
-	const statusB = await callRoute(`/project-memory/status?cwd=${encodeURIComponent(b)}`);
+	await callRoute("/trilogy/init", { method: "POST", body: { cwd: a } });
+	const statusA = await callRoute(`/trilogy/status?cwd=${encodeURIComponent(a)}`);
+	const statusB = await callRoute(`/trilogy/status?cwd=${encodeURIComponent(b)}`);
 	assert.notEqual(statusA.body.phase, "none", "a has memory");
 	assert.equal(statusB.body.phase, "none", "b has none");
 	assert.notEqual(statusA.body.workspace, statusB.body.workspace);
@@ -601,7 +594,7 @@ await check("a block that vanished from the session is re-injected", async () =>
 	// Same content and the block is still there: stay quiet.
 	session.eventAt = () => ({
 		type: "user/message",
-		data: { source: { kind: "plugin", plugin: "project-memory", form: "project-memory" } },
+		data: { source: { kind: "plugin", plugin: "trilogy", form: "trilogy" } },
 	});
 	const third = await preStep(compactCtx.handlers, subject);
 	assert.equal(third.messages.length, 0, "a block still present must not be re-injected");
