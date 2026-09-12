@@ -685,6 +685,25 @@ await check("an over-budget injection says what it left out", async () => {
 	assert.ok(text.includes("memory_search"), "the note must say how to get it back");
 });
 
+await check("the shipped default carries well beyond a handful of session entries", async () => {
+	// The count is the knob that decides how much log reaches every session. It used
+	// to be 5, which is a couple of days in a busy workspace.
+	const root = mkdtempSync(join(tmpdir(), "pm-default-entries-"));
+	const c = fakeContext();
+	apply(c.ctx, {}); // no config at all: whatever ships is what runs
+	const subject = fakeAgent(root);
+	await preStep(c.handlers, subject);
+	// The tool inserts in reverse, so the last item here ends up furthest down the
+	// log -- it is only injected if every one of the fifteen makes it in.
+	await c.tools.get("memory_checkpoint").execute({
+		sessions: Array.from({ length: 15 }, (_, i) => ({ done: `标记${i}` })),
+	}, { agent: subject });
+	const pass = await preStep(c.handlers, subject);
+	const text = JSON.stringify(pass.messages);
+	assert.ok(text.includes("标记0"), "the newest entry is missing");
+	assert.ok(text.includes("标记14"), "the default dropped the oldest of fifteen entries");
+});
+
 await check("the shipped budget fits a real-sized memory without an omission note", async () => {
 	// The default used to be 16000, which could not even hold the three files plus
 	// the default number of entries -- every session in a mature workspace got the

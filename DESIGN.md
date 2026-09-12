@@ -155,7 +155,7 @@ Because: 逼出这个选择的约束
 | `injectOnSessionStart` | `true` | 会话开始自动注入 |
 | `bootstrapWhenEmpty` | `true` | `PROJECT.md` 还空着时，注入「去调研并填上」的指令 |
 | `injectBudgetBytes` | `64000` | 注入总字节预算（天花板，不是配额；见 §4.2） |
-| `sessionEntriesInjected` | `5` | 注入最近几条 SESSIONS 条目 |
+| `sessionEntriesInjected` | `15` | 注入最近几条 SESSIONS 条目（决定日志量的旋钮） |
 | `nudgeOnTurnEnd` | `true` | 收尾智能判断兜底 |
 | `nudgeCooldownMs` | `600000` | 兜底提醒冷却 |
 | `nudgeMaxPerSession` | `3` | 每会话兜底提醒上限（写入成功即清零） |
