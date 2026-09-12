@@ -691,6 +691,33 @@ await check("POST /restore moves an archived entry back to the live log", async 
 	assert.ok(!read(join(capRoot, "memory", "SESSIONS-archive.md")).includes("entry 11"), "and gone from the archive");
 });
 
+await check("the archive pointer names how many entries moved", async () => {
+	const live = read(join(capRoot, "memory", "SESSIONS.md"));
+	assert.ok(/更早的会话条目已归档到 \d+ 条/.test(live), live.split("\n").slice(-3).join(" | "));
+});
+
+await check("GET /boot reports the boot block, and remove/rewrite round-trips", async () => {
+	const before = await callRoute(`/trilogy/boot?root=${encodeURIComponent(WEB_PROJECT)}`);
+	assert.equal(before.body.exists, true, "the block should be present");
+	assert.ok(before.body.block.includes("<!-- dsh-trilogy -->"), "the block text must be current");
+
+	const removed = await callRoute("/trilogy/boot", { method: "POST", body: { root: WEB_PROJECT, action: "remove" } });
+	assert.equal(removed.status, 200);
+	const gone = await callRoute(`/trilogy/boot?root=${encodeURIComponent(WEB_PROJECT)}`);
+	assert.equal(gone.body.exists, false, "remove must take it out");
+
+	const back = await callRoute("/trilogy/boot", { method: "POST", body: { root: WEB_PROJECT, action: "rewrite" } });
+	assert.equal(back.status, 200);
+	const again = await callRoute(`/trilogy/boot?root=${encodeURIComponent(WEB_PROJECT)}`);
+	assert.equal(again.body.exists, true, "rewrite must put it back");
+	assert.equal((await callRoute(`/trilogy/boot?root=${encodeURIComponent(WEB_PROJECT)}`)).body.current, true);
+});
+
+await check("/boot refuses an unknown action", async () => {
+	const { status } = await callRoute("/trilogy/boot", { method: "POST", body: { root: WEB_PROJECT, action: "nope" } });
+	assert.equal(status, 400);
+});
+
 /* --- 7. health ----------------------------------------------------- */
 
 await check("no warnings were logged during the whole run", () => {
