@@ -531,6 +531,13 @@ await check("SESSIONS.md is capped: the oldest entries move to an archive", asyn
 	assert.ok(live.includes("entry 0"), "the newest entry must stay live");
 	assert.ok(archived.includes("entry 11"), "the oldest entry must be archived");
 	assert.ok(!live.includes("entry 11"), "the archive must not leak back into the live log");
+	assert.ok(live.includes("更早的会话条目已归档到"), "the live log must leave a visible pointer to the archive");
+	assert.equal((live.match(/更早的会话条目已归档到/g) ?? []).length, 1, "the pointer must not stack");
+});
+
+await check("the archive stays reachable through memory_read", async () => {
+	const archived = await capCtx.tools.get("memory_read").execute({ file: "SESSIONS-archive.md" }, { agent: capAgent });
+	assert.ok(archived.content.includes("entry 11"), "archived detail must remain readable");
 });
 
 await check("the archive never leaks into the injected block", async () => {

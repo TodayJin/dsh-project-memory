@@ -182,7 +182,7 @@ scaffold 出空模板后，只要 `PROJECT.md` 还是空的，就注入一条 bo
 | `bootBlockFile` | `"AGENTS.md"` | boot block 写进哪个文件 |
 | `injectOnSessionStart` | `true` | 会话开始自动注入 |
 | `bootstrapWhenEmpty` | `true` | `PROJECT.md` 还空着时，注入"去调研并填上"的指令 |
-| `sessionsMaxEntries` | `40` | SESSIONS.md 超过这个条数就把最旧的搬到归档 |
+| `sessionsMaxEntries` | `200` | SESSIONS.md 超过这个条数才把最旧的搬到归档（阈值定得高，避免过早压缩） |
 | `projectRootStrategy` | `"workspace"` | `workspace` = 工作区即项目；`marker` = 向上找 `.git` |
 | `injectBudgetBytes` | `16000` | 注入总字节预算 |
 | `sessionEntriesInjected` | `5` | 注入最近几条 SESSIONS 条目 |
