@@ -636,6 +636,40 @@ await check("recording resets the nudge budget", async () => {
 	assert.equal(subject.steered.length, 2, "recording must give the budget back");
 });
 
+await check("an over-budget injection says what it left out", async () => {
+	const root = mkdtempSync(join(tmpdir(), "pm-budget-"));
+	mkdirSync(join(root, ".git"), { recursive: true });
+	const c = fakeContext();
+	// Ask for many recent entries so the block cannot fit under the floor budget.
+	apply(c.ctx, { injectBudgetBytes: 2000, sessionEntriesInjected: 30 });
+	const subject = fakeAgent(root);
+	await preStep(c.handlers, subject);
+	await c.tools.get("memory_checkpoint").execute({
+		sessions: Array.from({ length: 30 }, (_, i) => ({ done: "padding ".repeat(40) + i })),
+	}, { agent: subject });
+	const pass = await preStep(c.handlers, subject);
+	const text = JSON.stringify(pass.messages);
+	assert.ok(text.includes("未注入"), "the omission must be stated, not silent");
+	assert.ok(text.includes("memory_search"), "the note must say how to get it back");
+});
+
+await check("memory_search finds entries the live log no longer carries", async () => {
+	// capCtx capped SESSIONS.md at 5 entries, so "entry 11" lives in the archive.
+	const found = await capCtx.tools.get("memory_search").execute({ query: "entry 11" }, { agent: capAgent });
+	assert.ok(found.matches.length > 0, "the archive must be searchable");
+	assert.ok(
+		found.matches.some((match) => match.file === "SESSIONS-archive.md"),
+		JSON.stringify(found.matches.map((match) => match.file)),
+	);
+});
+
+await check("memory_search refuses an empty query", async () => {
+	await assert.rejects(
+		() => capCtx.tools.get("memory_search").execute({ query: "   " }, { agent: capAgent }),
+		/requires a non-empty query/,
+	);
+});
+
 /* --- 7. health ----------------------------------------------------- */
 
 await check("no warnings were logged during the whole run", () => {
