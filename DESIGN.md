@@ -99,9 +99,20 @@ Because: 逼出这个选择的约束
 
 把 `PROJECT.md` + `DECISIONS.md` 全文、`SESSIONS.md` 最近 N 条，注入成模型可见的上下文。
 
-- **一次会话只注入一次**，按内容 SHA-1 去重 —— 文件没变就不重复注入，**KV cache 友好**
+- **一次会话只保留一份**，按内容 SHA-1 去重 —— 文件没变就不重复注入，**KV cache 友好**
 - 有字节预算；超预算时 `PROJECT.md` 优先（它是当前状态），`SESSIONS.md` 先裁
-- 文件在会话中被本插件改动后，下一次请求重新注入（快照更新）
+- 文件在会话中被本插件改动后，**原地替换**那一份（`surfaceOp: {op:"replace"}` 写到 session 上，
+  而不是往 pre-step 的消息表里再加一条 —— 那张表只能加，见 §4.2.1），并顺手把会话里
+  已经攒下的旧副本收成一行短占位
+
+#### 4.2.1 为什么替换必须写到 session 上
+
+`agent/pre-step` 的 `messages` **不是会话历史**：宿主用 `inbox.claim(...)` 建输入与 `next()`
+的默认值，然后把返回的每一条都 `session.append(..., {surfaceOp:"append"})`。所以在那里返回消息
+只能「加」不能「换」；替换必须 `agent.session.append("user/message", 新块, {surfaceOp:{op:"replace",
+startSeq, endSeq}, sourceEventSeqs:[seq]})`。收拢旧副本只能**逐条单节点**换：`assertProvenance`
+要求 `sourceEventSeqs` 列出区间内所有被遮蔽的节点，而旧块之间夹着 assistant / tool 消息。占位另打
+一个 `form`（`trilogy-superseded`），否则会被当成活块反复收拢。
 
 > 「每个会话开始都加载最新」靠这一步保证。
 
@@ -177,9 +188,9 @@ Because: 逼出这个选择的约束
 
 | 套件 | 数量 | 覆盖 |
 |---|---|---|
-| `test/smoke.mjs` | 62 | 宿主半边：scaffold、boot block 幂等、五节完整性、注入与去重、压缩后重注入、分类写入、围栏代码块、section 就地替换、nudge 触发/冷却/重置、归档与恢复（含**跨轮顺序**）、搜索、10 条 Web 端点（含导出/导入与陈旧度）、loopback 围栏 |
-| `test/client-render.mjs` | 7 | 浏览器半边：每个注册的组件都真的被调用一次，并检查注入的样式表 |
-| `test/client-interact.mjs` | 26 | 浏览器半边：点击 → 请求 → 状态 → 重渲染的完整往返 |
+| `test/smoke.mjs` | 64 | 宿主半边：scaffold、boot block 幂等、五节完整性、注入与去重、**原地替换与旧副本收拢**、压缩后重注入、分类写入、围栏代码块、section 就地替换、nudge 触发/冷却/重置、归档与恢复（含**跨轮顺序**）、搜索、10 条 Web 端点（含导出/导入与陈旧度）、loopback 围栏 |
+| `test/client-render.mjs` | 9 | 浏览器半边：每个注册的组件都真的被调用一次，并检查注入的样式表（含 `box-sizing` 与按钮分组） |
+| `test/client-interact.mjs` | 28 | 浏览器半边：点击 → 请求 → 状态 → 重渲染的完整往返（含「移除段后编辑器不残留旧文本」） |
 
 三套都必须在提交前通过。浏览器半边的渲染错误会被 slot 错误边界静默吞成空白页，
 所以「能渲染」和「点了有用」必须各有一套测试，缺一不可。

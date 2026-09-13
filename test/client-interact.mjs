@@ -317,12 +317,28 @@ function mutate(state, method, path, queryRoot) {
 	if (method === "POST" && path === "/trilogy/boot") {
 		const boot = state.boot[root];
 		if (boot === undefined) return reply(400, { error: "未记录的工作区：" + root });
+		// Mirror the host: the block really is stripped from, and written into, the
+		// file. A fake that only flips the badge cannot see a stale editor — which is
+		// how "remove, then edit" kept showing the block that had just been removed.
+		const instr = state.instruction[root];
+		const block = "<!-- dsh-trilogy -->\n\n## Memory\n";
 		if (payload.action === "remove") {
+			if (instr !== undefined && typeof instr.text === "string" && instr.text.includes(block)) {
+				instr.text = instr.text.replace(block, "").replace(/^\n+/, "");
+				if (instr.text.length === 0) instr.text = null;
+				instr.exists = instr.text !== null;
+				instr.bytes = instr.text === null ? 0 : Buffer.byteLength(instr.text, "utf8");
+			}
 			boot.exists = false;
 			boot.current = false;
 			return reply(200, { removed: true });
 		}
 		if (payload.action === "rewrite") {
+			if (instr !== undefined && (typeof instr.text !== "string" || !instr.text.includes(block))) {
+				instr.text = block + (instr.text ?? "");
+				instr.exists = true;
+				instr.bytes = Buffer.byteLength(instr.text, "utf8");
+			}
 			boot.exists = true;
 			boot.current = true;
 			return reply(200, { rewritten: true });
@@ -617,6 +633,26 @@ await check("rewriting the Memory block posts the action and restores the badge"
 	assert.ok(textOf(tree).includes("已写入"), "the badge did not come back");
 });
 
+await check("the editor shows the file as it is now, not as it was when the panel loaded", async () => {
+	// Removing the block changes the file. The editor reads `instruction`, which only
+	// `loadFiles` refreshes, so an action that refreshes the badge alone hands you the
+	// pre-removal text back — and saving it silently re-adds what you just removed.
+	const h = harness();
+	let { tree } = await h.paint(h.settings, {});
+	await click(button(tree, "移除 Memory 段"));
+	tree = await h.settle(h.settings, {});
+	await click(button(tree, "编辑整份文件"));
+	tree = h.repaint(h.settings, {});
+
+	const areas = findAll(tree, (el) => el.type === "textarea");
+	assert.equal(areas.length, 1, `expected one editor, saw ${areas.length}`);
+	assert.equal(
+		String(areas[0].props.value).includes("<!-- dsh-trilogy -->"),
+		false,
+		`the editor still shows the block that was just removed: ${areas[0].props.value}`,
+	);
+});
+
 /* --- editing the instruction file itself ----------------------------- */
 
 await check("the panel opens the whole instruction file, Memory block included", async () => {
@@ -688,6 +724,21 @@ await check("an open instruction editor survives a switch of the file tab", asyn
 });
 
 /* --- export / import ------------------------------------------------- */
+
+await check("export and import stay one unit when the archive hint appears", async () => {
+	// The archive tab adds a long hint to the same wrapping row. As bare siblings the
+	// two buttons broke to their own lines one at a time — 导出 stayed up, 导入 wrapped.
+	const h = harness();
+	let { tree } = await h.paint(h.settings, {});
+	await click(button(tree, "归档"));
+	tree = await h.settle(h.settings, {});
+
+	const groups = findAll(tree, (el) => el.props?.className === "dsh-pm-btn-group");
+	assert.equal(groups.length, 1, `expected one button group, saw ${groups.length}`);
+	const labels = findAll(groups[0], (el) => el.type === "button").map(textOf);
+	assert.deepEqual(labels, ["导出", "导入"], "the two buttons must share one atomic row");
+	assert.ok(textOf(tree).includes("归档只读"), "the hint this guards against is not on screen");
+});
 
 await check("export downloads a JSON bundle named after the workspace", async () => {
 	const h = harness();

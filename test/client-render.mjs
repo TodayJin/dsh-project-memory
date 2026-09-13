@@ -161,6 +161,40 @@ check("the workspace list scrolls instead of squashing its rows", () => {
 	assert.match(list[0], /max-height/, "the list is the thing that should overflow");
 });
 
+check("no full-width control is sized out of its container", () => {
+	// The host resets border-box per component, never globally, so a `width:100%`
+	// control with padding or a border renders exactly that much wider than its
+	// parent. This is the bug the AGENTS.md editor shipped with: the box poked out
+	// of the card on the right. A render call cannot see it, so the sheet is checked.
+	const css = created.map((element) => element.textContent).join("\n");
+	const reset = /(?:^|\})\s*([^{}]+)\{([^}]*box-sizing:\s*border-box[^}]*)\}/.exec(css);
+	assert.ok(reset !== null, "the stylesheet never sets box-sizing:border-box");
+	assert.match(
+		reset[1],
+		/\.dsh-pm\s+\*/,
+		`the reset must reach descendants, not only the root: ${reset[1].trim()}`,
+	);
+	const fullWidth = [...css.matchAll(/([^{}]+)\{([^}]*width:\s*100%[^}]*)\}/g)];
+	assert.ok(fullWidth.length >= 2, "the editor and the filter should both be full width");
+	for (const [, selector, body] of fullWidth) {
+		if (!/padding\s*:|border\s*:/.test(body)) continue;
+		assert.match(selector, /\.dsh-pm/, `${selector.trim()} is full width and must be reset`);
+	}
+});
+
+check("the tool row keeps its buttons together and gives up the hint first", () => {
+	// A wrapping row breaks between flex items: two bare sibling buttons can land on
+	// two lines. The group is what makes that impossible, so it must not shrink, and
+	// the hint must be the item that yields its width.
+	const css = created.map((element) => element.textContent).join("\n");
+	const group = /\.dsh-pm-btn-group\{[^}]*\}/.exec(css);
+	assert.ok(group !== null, "no .dsh-pm-btn-group rule");
+	assert.match(group[0], /flex:0 0 auto/, `.dsh-pm-btn-group must not be shrunk: ${group[0]}`);
+	const hint = /\.dsh-pm-toolbar-fill>\.dsh-pm-hint\{[^}]*\}/.exec(css);
+	assert.ok(hint !== null, "the hint in the filling tool row has no rule");
+	assert.match(hint[0], /flex:1 1 0/, `the hint must yield before the buttons do: ${hint[0]}`);
+});
+
 check("the chip stays invisible until it has a reading, and does not throw", () => {
 	const chip = registrations.find((entry) => entry.options.name === "conversation.input.left");
 	const tree = chip.Component({

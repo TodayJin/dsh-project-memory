@@ -98,18 +98,71 @@ function fakeLlm(payload) {
 	};
 }
 
-/** A fake agent rooted at `cwd`, recording every steer. */
+/**
+ * A fake agent rooted at `cwd`, recording every steer.
+ *
+ * The session models the two surface facts this plugin depends on: the live node
+ * list with `eventAt`, and an `append` that applies the same append/replace
+ * semantics `dsh-session` enforces — an append lands a new node, a positional
+ * replace shadows the node it names. Without that, the plugin's only way to update
+ * a block it already published would be invisible here, and so would the bug where
+ * it kept stacking full copies of the memory.
+ */
 function fakeAgent(cwd) {
 	const steered = [];
-	return {
-		session: { header: { cwd } },
-		steer: (message) => steered.push(message),
-		steered,
+	const log = new Map();
+	const nodes = [];
+	const session = {
+		header: { cwd },
+		surface: { nodes },
+		eventAt: (seq) => log.get(seq),
+		append: (type, data, opts) => {
+			const seq = log.size;
+			const event = { type, seq, data };
+			log.set(seq, event);
+			const op = opts?.surfaceOp;
+			if (op === undefined || op === "append") nodes.push(seq);
+			else {
+				const at = nodes.indexOf(op.startSeq);
+				if (at === -1) throw new Error(`surface replace names a node that is not live: ${String(op.startSeq)}`);
+				nodes.splice(at, op.endSeq - op.startSeq + 1, seq);
+			}
+			return event;
+		},
 	};
+	return { session, steer: (message) => steered.push(message), steered };
 }
 
-const preStep = (handlers, agent) =>
-	handlers.get("agent/pre-step")({ agent }, async () => ({ kind: "enter", messages: [] }));
+/**
+ * Run one pre-step, then apply the messages it decided on the way the loop does.
+ *
+ * `dsh-agent-loop` appends every message the step returned, so a fake that only
+ * inspected the return value could never tell an appended block from a replaced one.
+ */
+const preStep = async (handlers, agent) => {
+	const decision = await handlers.get("agent/pre-step")({ agent }, async () => ({ kind: "enter", messages: [] }));
+	if (typeof agent?.session?.append === "function" && Array.isArray(decision.messages)) {
+		for (const message of decision.messages) agent.session.append("user/message", message, { surfaceOp: "append" });
+	}
+	return decision;
+};
+
+/**
+ * The memory block a step published, wherever it landed.
+ *
+ * The first injection of a session travels in the step's message list; every later
+ * one replaces the block already on the surface. Tests care about the text, not the
+ * channel, so they read it from either.
+ */
+const publishedBlock = (agent, decision) => {
+	const direct = decision.messages.find((message) => message.source?.form === "trilogy");
+	if (direct !== undefined) return direct;
+	const node = agent?.session?.surface?.nodes
+		?.map((seq) => agent.session.eventAt(seq))
+		.filter((event) => event?.type === "user/message" && event.data?.source?.form === "trilogy")
+		.at(-1);
+	return node?.data;
+};
 
 console.log(`dsh-trilogy smoke test — plugin id "${name}", inject ${JSON.stringify(inject)}`);
 console.log(`config declared: ${Config !== undefined}`);
@@ -171,8 +224,7 @@ await check("a changed memory file is re-injected", async () => {
 		"utf8",
 	);
 	const afterEdit = await preStep(handlers, agent);
-	assert.equal(afterEdit.messages.length, 1, "expected exactly one injected message");
-	const text = JSON.stringify(afterEdit.messages[0]);
+	const text = JSON.stringify(publishedBlock(agent, afterEdit));
 	assert.ok(text.includes("a real project"), "changed content missing");
 	assert.ok(!text.includes("项目记忆是空的"), "bootstrap must stop once real content exists");
 });
@@ -212,9 +264,10 @@ await check("bootstrap stops once PROJECT.md is filled through the tool", async 
 	);
 
 	const second = await preStep(fresh.handlers, freshAgent);
-	assert.equal(second.messages.length, 1, "filling PROJECT.md must refresh the injected block");
+	const refreshed = JSON.stringify(publishedBlock(freshAgent, second));
+	assert.ok(refreshed.includes("a surveyed project"), "filling PROJECT.md must refresh the injected block");
 	assert.ok(
-		!JSON.stringify(second.messages[0]).includes("项目记忆是空的"),
+		!refreshed.includes("项目记忆是空的"),
 		"bootstrap must not repeat once the project has been described",
 	);
 });
@@ -675,6 +728,74 @@ await check("a block that vanished from the session is re-injected", async () =>
 	assert.equal(third.messages.length, 0, "a block still present must not be re-injected");
 });
 
+await check("a changed memory file replaces the block published on the surface", async () => {
+	// The step's message list is append-only — the loop builds it from the inbox it
+	// just claimed and appends every entry — so returning a message can only ever add
+	// a copy. Memory changes on most turns of a busy session, so without a real
+	// positional replacement the same full block rides along once per write: one real
+	// session reached 18 copies, ~40% of the surface.
+	const root = mkdtempSync(join(tmpdir(), "pm-replace-"));
+	const c = fakeContext();
+	apply(c.ctx, {});
+	const subject = fakeAgent(root);
+	const liveBlocks = () =>
+		subject.session.surface.nodes
+			.map((seq) => subject.session.eventAt(seq))
+			.filter((event) => event?.type === "user/message" && event.data?.source?.form === "trilogy").length;
+
+	const first = await preStep(c.handlers, subject);
+	assert.equal(first.messages.length, 1, "the first step must inject exactly one block");
+	assert.equal(liveBlocks(), 1, "the first block must reach the surface");
+
+	const quiet = await preStep(c.handlers, subject);
+	assert.equal(quiet.messages.length, 0, "an unchanged block must not be re-sent");
+
+	writeFileSync(join(root, "memory", "PROJECT.md"), "## 现状\n\n替换后的正文\n", "utf8");
+	const after = await preStep(c.handlers, subject);
+	assert.equal(after.messages.length, 0, "a replacement must go to the session, not the step list");
+	assert.equal(liveBlocks(), 1, `the block must be replaced, not stacked, saw ${liveBlocks()}`);
+	const newest = subject.session.eventAt(subject.session.surface.nodes.at(-1));
+	assert.ok(JSON.stringify(newest).includes("替换后的正文"), "the replacement must carry the new content");
+});
+
+await check("copies a session already accumulated are collapsed to short stand-ins", async () => {
+	// Replacing stops the growth; this repairs what is already there. One real session
+	// held eighteen copies of the same ~57 KB block — about 40% of its surface —
+	// because appending was all the plugin could do at the time.
+	const root = mkdtempSync(join(tmpdir(), "pm-collapse-"));
+	const c = fakeContext();
+	apply(c.ctx, {});
+	const subject = fakeAgent(root);
+	await preStep(c.handlers, subject);
+
+	// Four more copies, as a session that accumulated them looks.
+	for (let i = 0; i < 4; i += 1) {
+		subject.session.append("user/message", {
+			id: `stray-${i}`,
+			role: "user",
+			content: [{ type: "text", text: "一份旧的记忆块" }],
+			source: { kind: "plugin", plugin: name, form: "trilogy" },
+		}, { surfaceOp: "append" });
+	}
+
+	const live = (form) =>
+		subject.session.surface.nodes
+			.map((seq) => subject.session.eventAt(seq))
+			.filter((event) => event?.type === "user/message" && event.data?.source?.form === form)
+			.map((event) => JSON.stringify(event));
+	assert.equal(live("trilogy").length, 5, "the fixture must start with five full copies");
+
+	writeFileSync(join(root, "memory", "PROJECT.md"), "## 现状\n\n收拢后的正文\n", "utf8");
+	const after = await preStep(c.handlers, subject);
+
+	assert.equal(after.messages.length, 0, "the repair must go to the session, not the step list");
+	assert.equal(live("trilogy").length, 1, `exactly one full block may survive, saw ${live("trilogy").length}`);
+	assert.ok(live("trilogy")[0].includes("收拢后的正文"), "the surviving block must carry the newest content");
+	const standIns = live("trilogy-superseded");
+	assert.equal(standIns.length, 4, "every earlier copy must be left as a stand-in");
+	assert.ok(standIns[0].length < 400, `a stand-in must be tiny — it exists to free space: ${standIns[0]}`);
+});
+
 await check("a boot block written under an older name is upgraded, not duplicated", async () => {
 	const root = mkdtempSync(join(tmpdir(), "pm-upgrade-"));
 	writeFileSync(join(root, "AGENTS.md"), "# House rules\n\n<!-- dsh-project-memory -->\n\n## Memory\n\nstale block\n", "utf8");
@@ -723,7 +844,7 @@ await check("an over-budget injection says what it left out", async () => {
 		sessions: Array.from({ length: 30 }, (_, i) => ({ done: "padding ".repeat(40) + i })),
 	}, { agent: subject });
 	const pass = await preStep(c.handlers, subject);
-	const text = JSON.stringify(pass.messages);
+	const text = JSON.stringify(publishedBlock(subject, pass));
 	assert.ok(text.includes("未注入"), "the omission must be stated, not silent");
 	assert.ok(text.includes("memory_search"), "the note must say how to get it back");
 });
@@ -741,7 +862,7 @@ await check("an over-budget log degrades entry by entry, not by dropping the log
 		sessions: Array.from({ length: 12 }, (_, i) => ({ done: `条目${i} ` + "填充".repeat(120) })),
 	}, { agent: subject });
 	const pass = await preStep(c.handlers, subject);
-	const text = JSON.stringify(pass.messages);
+	const text = JSON.stringify(publishedBlock(subject, pass));
 	assert.ok(text.includes("条目0"), "the newest entry must survive an over-budget log");
 	assert.ok(!text.includes("条目11"), "the oldest entry should have been dropped");
 	assert.ok(/本次只注入最近 \d+ 条/.test(text), `expected a partial count, got: ${text.slice(-240)}`);
@@ -761,7 +882,7 @@ await check("the shipped default carries well beyond a handful of session entrie
 		sessions: Array.from({ length: 15 }, (_, i) => ({ done: `标记${i}` })),
 	}, { agent: subject });
 	const pass = await preStep(c.handlers, subject);
-	const text = JSON.stringify(pass.messages);
+	const text = JSON.stringify(publishedBlock(subject, pass));
 	assert.ok(text.includes("标记0"), "the newest entry is missing");
 	assert.ok(text.includes("标记14"), "the default dropped the oldest of fifteen entries");
 });
@@ -780,7 +901,7 @@ await check("the shipped budget fits a real-sized memory without an omission not
 		sessions: Array.from({ length: 5 }, (_, i) => ({ done: "记录一条".repeat(200) + i })),
 	}, { agent: subject });
 	const pass = await preStep(c.handlers, subject);
-	const text = JSON.stringify(pass.messages);
+	const text = JSON.stringify(publishedBlock(subject, pass));
 	assert.ok(text.includes("填充内容"), "the project memory was not injected at all");
 	assert.ok(!text.includes("未注入"), "the shipped budget is too small for a normal memory");
 });

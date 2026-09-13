@@ -84,7 +84,9 @@ dsh plugin --profile web remove dsh-trilogy
 2. **项目还没被描述过时**（`PROJECT.md` 五节全是 `暂无`）→ 注入一条"去调研这个项目并填上"的指令，
    模型会读 README / 构建与测试配置 / 入口点 / 目录结构，**并真的跑一遍测试命令**，然后填 `PROJECT.md`。
    填完就不再提；
-3. 之后每个会话开始 → 三个文件自动注入上下文（内容没变则不重复注入，**KV cache 友好**）；
+3. 之后每个会话开始 → 三个文件自动注入上下文（内容没变则不重复注入，**KV cache 友好**；
+   内容变了则**原地替换**上一次那份，所以一次会话里始终只有一份，不会越积越多；
+   换的时候还会顺手把历史上已经攒下的多份收成一行短占位）；
 4. 会话干了实事却没记录 → 收尾时收到一条很短的提醒，由**主模型**自己判断该不该记。
 
 ### 初次填充（bootstrap）
@@ -223,9 +225,9 @@ scaffold 出空模板后，只要 `PROJECT.md` 还是空的，就注入一条 bo
 ## 开发与测试
 
 ```sh
-node test/smoke.mjs            # 62 项，宿主半边
-node test/client-render.mjs    # 7 项，浏览器半边：每个组件都真的渲染一次，并检查注入的样式表
-node test/client-interact.mjs  # 26 项，浏览器半边：点击 → 请求 → 状态 → 重渲染
+node test/smoke.mjs            # 64 项，宿主半边
+node test/client-render.mjs    # 9 项，浏览器半边：每个组件都真的渲染一次，并检查注入的样式表
+node test/client-interact.mjs  # 28 项，浏览器半边：点击 → 请求 → 状态 → 重渲染
 ```
 
 `smoke.mjs` 用假 ctx 驱动真实的 `apply()`。两个浏览器套件用 vm 沙箱跑 bundle：
