@@ -101,18 +101,22 @@ Because: 逼出这个选择的约束
 
 - **一次会话只保留一份**，按内容 SHA-1 去重 —— 文件没变就不重复注入，**KV cache 友好**
 - 有字节预算；超预算时 `PROJECT.md` 优先（它是当前状态），`SESSIONS.md` 先裁
-- 文件在会话中被本插件改动后，**原地替换**那一份（`surfaceOp: {op:"replace"}` 写到 session 上，
-  而不是往 pre-step 的消息表里再加一条 —— 那张表只能加，见 §4.2.1），并顺手把会话里
-  已经攒下的旧副本收成一行短占位
+- 文件在会话中被本插件改动后，**只在末尾追加一行 ~200 字节的提示**（「记忆已更新」），
+  不重发整块、也不改写历史 —— 改写历史中段会让 prompt cache 从那里到结尾全部失效
+  （实测：1.3% 的请求吃掉 58% 的全价输入，平均贵 93 倍）
 
-#### 4.2.1 为什么替换必须写到 session 上
+#### 4.2.1 为什么更新只能追加，而收拢必须写到 session 上
 
 `agent/pre-step` 的 `messages` **不是会话历史**：宿主用 `inbox.claim(...)` 建输入与 `next()`
 的默认值，然后把返回的每一条都 `session.append(..., {surfaceOp:"append"})`。所以在那里返回消息
-只能「加」不能「换」；替换必须 `agent.session.append("user/message", 新块, {surfaceOp:{op:"replace",
-startSeq, endSeq}, sourceEventSeqs:[seq]})`。收拢旧副本只能**逐条单节点**换：`assertProvenance`
-要求 `sourceEventSeqs` 列出区间内所有被遮蔽的节点，而旧块之间夹着 assistant / tool 消息。占位另打
-一个 `form`（`trilogy-superseded`），否则会被当成活块反复收拢。
+只能「加」不能「换」。
+
+**日常更新本来就该是「加」** —— 追加不动前缀，缓存友好。只有一种情况需要「换」：**收拢库存**，
+即会话里因为老版本累积了多份同样的块。那时必须 `agent.session.append("user/message", 占位,
+{surfaceOp:{op:"replace", startSeq, endSeq}, sourceEventSeqs:[seq]})` 写到 session 上。收拢只能
+**逐条单节点**换：`assertProvenance` 要求 `sourceEventSeqs` 列出区间内所有被遮蔽的节点，而旧块
+之间夹着 assistant / tool 消息，一个大 range 会把这段对话一起删掉。占位另打一个 `form`
+（`trilogy-superseded`），否则会被当成活块反复收拢。
 
 > 「每个会话开始都加载最新」靠这一步保证。
 
@@ -188,7 +192,7 @@ startSeq, endSeq}, sourceEventSeqs:[seq]})`。收拢旧副本只能**逐条单�
 
 | 套件 | 数量 | 覆盖 |
 |---|---|---|
-| `test/smoke.mjs` | 64 | 宿主半边：scaffold、boot block 幂等、五节完整性、注入与去重、**原地替换与旧副本收拢**、压缩后重注入、分类写入、围栏代码块、section 就地替换、nudge 触发/冷却/重置、归档与恢复（含**跨轮顺序**）、搜索、10 条 Web 端点（含导出/导入与陈旧度）、loopback 围栏 |
+| `test/smoke.mjs` | 67 | 宿主半边：scaffold、boot block 幂等、五节完整性、注入与去重、**更新只追加通知 / 重启不误报 / 通知与占位不算活块 / 旧副本收拢**、压缩后重注入、分类写入、围栏代码块、section 就地替换、nudge 触发/冷却/重置、归档与恢复（含**跨轮顺序**）、搜索、10 条 Web 端点（含导出/导入与陈旧度）、loopback 围栏 |
 | `test/client-render.mjs` | 9 | 浏览器半边：每个注册的组件都真的被调用一次，并检查注入的样式表（含 `box-sizing` 与按钮分组） |
 | `test/client-interact.mjs` | 28 | 浏览器半边：点击 → 请求 → 状态 → 重渲染的完整往返（含「移除段后编辑器不残留旧文本」） |
 

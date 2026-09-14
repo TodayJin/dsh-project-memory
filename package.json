@@ -1,6 +1,6 @@
 {
   "name": "dsh-trilogy",
-  "version": "0.9.3",
+  "version": "0.9.4",
   "description": "Per-project memory for DeepSeek Harness: auto-creates memory/PROJECT.md, DECISIONS.md and SESSIONS.md per project, loads them into every session, and records durable outcomes by classification.",
   "type": "module",
   "main": "lib/index.js",

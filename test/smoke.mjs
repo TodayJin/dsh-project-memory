@@ -112,10 +112,12 @@ function fakeAgent(cwd) {
 	const steered = [];
 	const log = new Map();
 	const nodes = [];
+	let replaced = 0;
 	const session = {
 		header: { cwd },
 		surface: { nodes },
 		eventAt: (seq) => log.get(seq),
+		replaced: () => replaced,
 		append: (type, data, opts) => {
 			const seq = log.size;
 			const event = { type, seq, data };
@@ -125,6 +127,7 @@ function fakeAgent(cwd) {
 			else {
 				const at = nodes.indexOf(op.startSeq);
 				if (at === -1) throw new Error(`surface replace names a node that is not live: ${String(op.startSeq)}`);
+				replaced += 1;
 				nodes.splice(at, op.endSeq - op.startSeq + 1, seq);
 			}
 			return event;
@@ -132,6 +135,12 @@ function fakeAgent(cwd) {
 	};
 	return { session, steer: (message) => steered.push(message), steered };
 }
+
+/** The live surface nodes a fake session carries under one source form. */
+const liveWithForm = (agent, form) =>
+	agent.session.surface.nodes
+		.map((seq) => agent.session.eventAt(seq))
+		.filter((event) => event?.type === "user/message" && event.data?.source?.form === form);
 
 /**
  * Run one pre-step, then apply the messages it decided on the way the loop does.
@@ -224,8 +233,14 @@ await check("a changed memory file is re-injected", async () => {
 		"utf8",
 	);
 	const afterEdit = await preStep(handlers, agent);
-	const text = JSON.stringify(publishedBlock(agent, afterEdit));
-	assert.ok(text.includes("a real project"), "changed content missing");
+	assert.equal(afterEdit.messages.length, 1, "an update must still reach the session");
+	assert.equal(afterEdit.messages[0].source.form, "trilogy-update", "a running session gets the notice, not another block");
+	// A session that starts now gets the whole, current memory — and no bootstrap prompt,
+	// because the project has been described.
+	const reader = fakeAgent(projectRoot);
+	const fresh = await preStep(handlers, reader);
+	const text = JSON.stringify(publishedBlock(reader, fresh));
+	assert.ok(text.includes("a real project"), "changed content missing from a new session");
 	assert.ok(!text.includes("项目记忆是空的"), "bootstrap must stop once real content exists");
 });
 
@@ -264,8 +279,12 @@ await check("bootstrap stops once PROJECT.md is filled through the tool", async 
 	);
 
 	const second = await preStep(fresh.handlers, freshAgent);
-	const refreshed = JSON.stringify(publishedBlock(freshAgent, second));
-	assert.ok(refreshed.includes("a surveyed project"), "filling PROJECT.md must refresh the injected block");
+	assert.equal(second.messages[0].source.form, "trilogy-update", "a running session only gets the notice");
+	// A session that starts after the write is the one that must see the filled file.
+	const reader = fakeAgent(freshRoot);
+	const third = await preStep(fresh.handlers, reader);
+	const refreshed = JSON.stringify(publishedBlock(reader, third));
+	assert.ok(refreshed.includes("a surveyed project"), "a new session must see the filled PROJECT.md");
 	assert.ok(
 		!refreshed.includes("项目记忆是空的"),
 		"bootstrap must not repeat once the project has been described",
@@ -715,9 +734,15 @@ await check("a block that vanished from the session is re-injected", async () =>
 	assert.equal(first.messages.length, 1, "the first pass must inject");
 
 	// Same content, but nothing in the session carries it: this is what a
-	// compaction leaves behind, and it must not silence the memory.
+	// compaction leaves behind, and it must not silence the memory. It has to come back
+	// as the whole block — a notice would leave the model with no memory at all.
 	const second = await preStep(compactCtx.handlers, subject);
 	assert.equal(second.messages.length, 1, "a block absent from the session must be re-injected");
+	assert.equal(
+		second.messages[0].source.form,
+		"trilogy",
+		"a vanished block must return as the block itself, not as a notice",
+	);
 
 	// Same content and the block is still there: stay quiet.
 	session.eventAt = () => ({
@@ -728,34 +753,108 @@ await check("a block that vanished from the session is re-injected", async () =>
 	assert.equal(third.messages.length, 0, "a block still present must not be re-injected");
 });
 
-await check("a changed memory file replaces the block published on the surface", async () => {
-	// The step's message list is append-only — the loop builds it from the inbox it
-	// just claimed and appends every entry — so returning a message can only ever add
-	// a copy. Memory changes on most turns of a busy session, so without a real
-	// positional replacement the same full block rides along once per write: one real
-	// session reached 18 copies, ~40% of the surface.
-	const root = mkdtempSync(join(tmpdir(), "pm-replace-"));
+await check("a stand-in or a notice is not mistaken for the published block", async () => {
+	// Only `form: "trilogy"` counts as the live block. A session whose surface holds a
+	// collapsed stand-in and an update notice has no memory in context, so the next
+	// change must publish the whole thing again rather than announce another update.
+	const root = mkdtempSync(join(tmpdir(), "pm-not-a-block-"));
 	const c = fakeContext();
 	apply(c.ctx, {});
 	const subject = fakeAgent(root);
-	const liveBlocks = () =>
-		subject.session.surface.nodes
-			.map((seq) => subject.session.eventAt(seq))
-			.filter((event) => event?.type === "user/message" && event.data?.source?.form === "trilogy").length;
+
+	for (const [id, form] of [["stand-in", "trilogy-superseded"], ["notice", "trilogy-update"]]) {
+		subject.session.append("user/message", {
+			id,
+			role: "user",
+			content: [{ type: "text", text: "不是活块" }],
+			source: { kind: "plugin", plugin: name, form },
+		}, { surfaceOp: "append" });
+	}
+
+	const pass = await preStep(c.handlers, subject);
+	assert.equal(pass.messages.length, 1, "the memory must still reach the session");
+	assert.equal(pass.messages[0].source.form, "trilogy", `expected the whole block, got ${String(pass.messages[0].source.form)}`);
+});
+
+await check("an update notice never triggers the repair", async () => {
+	// The repair rewrites history, so it must fire only on real duplicates. A session
+	// that has been updating normally holds one block plus notices, and rewriting
+	// anything there would spend the cache for nothing.
+	const root = mkdtempSync(join(tmpdir(), "pm-notice-no-repair-"));
+	const c = fakeContext();
+	apply(c.ctx, {});
+	const subject = fakeAgent(root);
+	await preStep(c.handlers, subject);
+	for (const id of ["n1", "n2"]) {
+		subject.session.append("user/message", {
+			id,
+			role: "user",
+			content: [{ type: "text", text: "记忆已更新" }],
+			source: { kind: "plugin", plugin: name, form: "trilogy-update" },
+		}, { surfaceOp: "append" });
+	}
+
+	writeFileSync(join(root, "memory", "PROJECT.md"), "## 现状\n\n又变了\n", "utf8");
+	const pass = await preStep(c.handlers, subject);
+	assert.equal(pass.messages.length, 1, "the change must still be announced");
+	assert.equal(subject.session.replaced(), 0, "notices are not duplicates and must not be repaired");
+	assert.equal(liveWithForm(subject, "trilogy").length, 1, "the published block must be left alone");
+});
+
+await check("a changed memory file announces itself instead of rewriting history", async () => {
+	// Rewriting the block already in history invalidates the prompt cache from that point
+	// to the end of the context. Measured on real sessions: the 87 requests that carried
+	// such a rewrite were 1.3% of all requests but 58% of all full-price input, at 93x the
+	// cost of an ordinary one. An update is appended at the tail instead.
+	const root = mkdtempSync(join(tmpdir(), "pm-update-"));
+	const c = fakeContext();
+	apply(c.ctx, {});
+	const subject = fakeAgent(root);
 
 	const first = await preStep(c.handlers, subject);
 	assert.equal(first.messages.length, 1, "the first step must inject exactly one block");
-	assert.equal(liveBlocks(), 1, "the first block must reach the surface");
+	assert.equal(first.messages[0].source.form, "trilogy", "the first injection is the block itself");
 
 	const quiet = await preStep(c.handlers, subject);
-	assert.equal(quiet.messages.length, 0, "an unchanged block must not be re-sent");
+	assert.equal(quiet.messages.length, 0, "an unchanged memory must not be re-sent");
 
-	writeFileSync(join(root, "memory", "PROJECT.md"), "## 现状\n\n替换后的正文\n", "utf8");
+	writeFileSync(join(root, "memory", "PROJECT.md"), "## 现状\n\n更新后的正文\n", "utf8");
 	const after = await preStep(c.handlers, subject);
-	assert.equal(after.messages.length, 0, "a replacement must go to the session, not the step list");
-	assert.equal(liveBlocks(), 1, `the block must be replaced, not stacked, saw ${liveBlocks()}`);
-	const newest = subject.session.eventAt(subject.session.surface.nodes.at(-1));
-	assert.ok(JSON.stringify(newest).includes("替换后的正文"), "the replacement must carry the new content");
+	assert.equal(after.messages.length, 1, "the change must still reach the session");
+	assert.equal(after.messages[0].source.form, "trilogy-update", "a later change must not publish a second block");
+	const size = JSON.stringify(after.messages[0]).length;
+	assert.ok(size < 400, `the notice must stay small — it replaces a re-injected block: ${size}`);
+	assert.equal(liveWithForm(subject, "trilogy").length, 1, "the published block must be left alone");
+	assert.equal(subject.session.replaced(), 0, "the ordinary update path must never rewrite history");
+});
+
+await check("a resumed session whose memory did not change is told nothing", async () => {
+	// A restart leaves this plugin with no per-session state while the session keeps its
+	// surface, so the first step looks like a change. Announcing one would be a lie the
+	// model acts on — and it would happen on every restart.
+	const root = mkdtempSync(join(tmpdir(), "pm-resume-"));
+	const c = fakeContext();
+	apply(c.ctx, {});
+
+	const warm = fakeAgent(root);
+	const first = await preStep(c.handlers, warm);
+	const blockText = first.messages[0].content[0].text;
+
+	// The same block, already sitting on a session this process has never seen.
+	const resumed = fakeAgent(root);
+	resumed.session.append("user/message", {
+		id: "carried-over",
+		role: "user",
+		content: [{ type: "text", text: blockText }],
+		source: { kind: "plugin", plugin: name, form: "trilogy", baseline: true },
+	}, { surfaceOp: "append" });
+
+	const pass = await preStep(c.handlers, resumed);
+	assert.equal(
+		pass.messages.length,
+		0,
+		`a resumed session must not be told the memory changed: ${JSON.stringify(pass.messages).slice(0, 200)}`,
+	);
 });
 
 await check("copies a session already accumulated are collapsed to short stand-ins", async () => {
@@ -778,22 +877,19 @@ await check("copies a session already accumulated are collapsed to short stand-i
 		}, { surfaceOp: "append" });
 	}
 
-	const live = (form) =>
-		subject.session.surface.nodes
-			.map((seq) => subject.session.eventAt(seq))
-			.filter((event) => event?.type === "user/message" && event.data?.source?.form === form)
-			.map((event) => JSON.stringify(event));
+	const live = (form) => liveWithForm(subject, form).map((event) => JSON.stringify(event));
 	assert.equal(live("trilogy").length, 5, "the fixture must start with five full copies");
 
 	writeFileSync(join(root, "memory", "PROJECT.md"), "## 现状\n\n收拢后的正文\n", "utf8");
 	const after = await preStep(c.handlers, subject);
 
-	assert.equal(after.messages.length, 0, "the repair must go to the session, not the step list");
+	assert.equal(after.messages.length, 1, "the change itself still reaches the session");
+	assert.equal(after.messages[0].source.form, "trilogy-update", "and it reaches it as a notice");
 	assert.equal(live("trilogy").length, 1, `exactly one full block may survive, saw ${live("trilogy").length}`);
-	assert.ok(live("trilogy")[0].includes("收拢后的正文"), "the surviving block must carry the newest content");
 	const standIns = live("trilogy-superseded");
 	assert.equal(standIns.length, 4, "every earlier copy must be left as a stand-in");
 	assert.ok(standIns[0].length < 400, `a stand-in must be tiny — it exists to free space: ${standIns[0]}`);
+	assert.equal(subject.session.replaced(), 4, "the repair rewrites exactly the copies it drops, no more");
 });
 
 await check("a boot block written under an older name is upgraded, not duplicated", async () => {
@@ -843,8 +939,11 @@ await check("an over-budget injection says what it left out", async () => {
 	await c.tools.get("memory_checkpoint").execute({
 		sessions: Array.from({ length: 30 }, (_, i) => ({ done: "padding ".repeat(40) + i })),
 	}, { agent: subject });
-	const pass = await preStep(c.handlers, subject);
-	const text = JSON.stringify(publishedBlock(subject, pass));
+	// A fresh session is what receives the whole memory; one already running only gets
+	// the notice, so these read the block the way a new session would.
+	const reader = fakeAgent(root);
+	const pass = await preStep(c.handlers, reader);
+	const text = JSON.stringify(publishedBlock(reader, pass));
 	assert.ok(text.includes("未注入"), "the omission must be stated, not silent");
 	assert.ok(text.includes("memory_search"), "the note must say how to get it back");
 });
@@ -861,8 +960,11 @@ await check("an over-budget log degrades entry by entry, not by dropping the log
 	await c.tools.get("memory_checkpoint").execute({
 		sessions: Array.from({ length: 12 }, (_, i) => ({ done: `条目${i} ` + "填充".repeat(120) })),
 	}, { agent: subject });
-	const pass = await preStep(c.handlers, subject);
-	const text = JSON.stringify(publishedBlock(subject, pass));
+	// A fresh session is what receives the whole memory; one already running only gets
+	// the notice, so these read the block the way a new session would.
+	const reader = fakeAgent(root);
+	const pass = await preStep(c.handlers, reader);
+	const text = JSON.stringify(publishedBlock(reader, pass));
 	assert.ok(text.includes("条目0"), "the newest entry must survive an over-budget log");
 	assert.ok(!text.includes("条目11"), "the oldest entry should have been dropped");
 	assert.ok(/本次只注入最近 \d+ 条/.test(text), `expected a partial count, got: ${text.slice(-240)}`);
@@ -881,8 +983,11 @@ await check("the shipped default carries well beyond a handful of session entrie
 	await c.tools.get("memory_checkpoint").execute({
 		sessions: Array.from({ length: 15 }, (_, i) => ({ done: `标记${i}` })),
 	}, { agent: subject });
-	const pass = await preStep(c.handlers, subject);
-	const text = JSON.stringify(publishedBlock(subject, pass));
+	// A fresh session is what receives the whole memory; one already running only gets
+	// the notice, so these read the block the way a new session would.
+	const reader = fakeAgent(root);
+	const pass = await preStep(c.handlers, reader);
+	const text = JSON.stringify(publishedBlock(reader, pass));
 	assert.ok(text.includes("标记0"), "the newest entry is missing");
 	assert.ok(text.includes("标记14"), "the default dropped the oldest of fifteen entries");
 });
@@ -900,8 +1005,11 @@ await check("the shipped budget fits a real-sized memory without an omission not
 		project: [{ section: "现状", text: "填充内容".repeat(2000) }],
 		sessions: Array.from({ length: 5 }, (_, i) => ({ done: "记录一条".repeat(200) + i })),
 	}, { agent: subject });
-	const pass = await preStep(c.handlers, subject);
-	const text = JSON.stringify(publishedBlock(subject, pass));
+	// A fresh session is what receives the whole memory; one already running only gets
+	// the notice, so these read the block the way a new session would.
+	const reader = fakeAgent(root);
+	const pass = await preStep(c.handlers, reader);
+	const text = JSON.stringify(publishedBlock(reader, pass));
 	assert.ok(text.includes("填充内容"), "the project memory was not injected at all");
 	assert.ok(!text.includes("未注入"), "the shipped budget is too small for a normal memory");
 });
